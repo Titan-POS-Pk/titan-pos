@@ -1,0 +1,207 @@
+/**
+ * Global Styles
+ *
+ * Imports Tailwind CSS and defines custom global styles.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Base Styles
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Better focus outlines */
+  *:focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary-500;
+  }
+
+  /* Prevent text selection on interactive elements */
+  button,
+  [role="button"] {
+    @apply select-none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Component Styles
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@layer components {
+  /* Product Card */
+  .product-card {
+    @apply bg-white rounded-lg border border-gray-200 p-4 cursor-pointer
+           transition-all duration-150 ease-in-out
+           hover:border-primary-300 hover:shadow-md
+           active:scale-[0.98];
+  }
+
+  .product-card:focus-visible {
+    @apply ring-2 ring-primary-500 ring-offset-2;
+  }
+
+  /* Price Display */
+  .price-display {
+    @apply font-mono text-lg font-semibold text-gray-900;
+  }
+
+  .price-display-large {
+    @apply font-mono text-2xl font-bold text-gray-900;
+  }
+
+  /* Cart Item */
+  .cart-item {
+    @apply flex items-center justify-between py-3 border-b border-gray-100
+           last:border-b-0;
+  }
+
+  /* Button Variants */
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg
+           font-medium transition-colors duration-150
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-600 text-white
+           hover:bg-primary-700 active:bg-primary-800
+           focus-visible:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-gray-100 text-gray-700
+           hover:bg-gray-200 active:bg-gray-300
+           focus-visible:ring-gray-500;
+  }
+
+  .btn-danger {
+    @apply btn bg-danger-600 text-white
+           hover:bg-danger-700 active:bg-danger-800
+           focus-visible:ring-danger-500;
+  }
+
+  .btn-success {
+    @apply btn bg-success-600 text-white
+           hover:bg-success-700 active:bg-success-800
+           focus-visible:ring-success-500;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-lg;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+
+  /* Input Styles */
+  .input {
+    @apply w-full px-4 py-2 rounded-lg border border-gray-300
+           bg-white text-gray-900 placeholder-gray-400
+           transition-colors duration-150
+           focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200;
+  }
+
+  .input-lg {
+    @apply px-6 py-3 text-lg;
+  }
+
+  /* Modal Backdrop */
+  .modal-backdrop {
+    @apply fixed inset-0 bg-black/50 flex items-center justify-center z-50
+           animate-fade-in;
+  }
+
+  .modal-content {
+    @apply bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4
+           animate-slide-up;
+  }
+
+  /* Numpad Button */
+  .numpad-btn {
+    @apply flex items-center justify-center w-16 h-16 rounded-lg
+           bg-gray-100 text-xl font-semibold text-gray-700
+           transition-all duration-100
+           hover:bg-gray-200 active:bg-gray-300 active:scale-95;
+  }
+
+  .numpad-btn-action {
+    @apply numpad-btn bg-primary-600 text-white
+           hover:bg-primary-700 active:bg-primary-800;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Utility Styles
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@layer utilities {
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Thin scrollbar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.gray.300') transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.gray.300');
+    border-radius: 3px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Animations
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.15s ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.2s ease-out;
+}

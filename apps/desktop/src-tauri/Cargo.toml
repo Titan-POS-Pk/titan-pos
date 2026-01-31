@@ -1,0 +1,95 @@
+[package]
+name = "titan-desktop"
+version = "0.1.0"
+description = "Titan POS Desktop Application"
+authors = ["Titan POS Team"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/titan-pos/titan-pos"
+
+# Tauri v2 entry point: this is a library that Tauri links against
+[lib]
+name = "titan_desktop_lib"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+# Binary entry point
+[[bin]]
+name = "titan-desktop"
+path = "src/main.rs"
+
+# =============================================================================
+# Dependencies
+# =============================================================================
+# 
+# ## Architecture Note
+# The desktop app is a thin layer that:
+# 1. Initializes Tauri window
+# 2. Registers commands (via `titan_desktop_lib::commands`)
+# 3. Manages state (Database, Cart, Config)
+# 4. Delegates all business logic to `titan-core` and `titan-db`
+#
+# ```text
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │                         titan-desktop                                   │
+# │  ┌─────────────────────────────────────────────────────────────────┐   │
+# │  │  Tauri Commands Layer                                           │   │
+# │  │  (search_products, create_sale, process_payment, etc.)          │   │
+# │  └─────────────────────────────────────────────────────────────────┘   │
+# │                              │                                          │
+# │                              ▼                                          │
+# │  ┌─────────────────────────────────────────────────────────────────┐   │
+# │  │  State Management (Multiple State Types - Option B)             │   │
+# │  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │   │
+# │  │  │ DbState      │ │ CartState    │ │ ConfigState              │ │   │
+# │  │  │ (Database)   │ │ (Arc<Mutex>) │ │ (tenant, tax, etc.)      │ │   │
+# │  │  └──────────────┘ └──────────────┘ └──────────────────────────┘ │   │
+# │  └─────────────────────────────────────────────────────────────────┘   │
+# │                              │                                          │
+# │                              ▼                                          │
+# │  ┌──────────────────────┐  ┌──────────────────────────────────────┐    │
+# │  │   titan-core         │  │   titan-db                          │    │
+# │  │   (Business Logic)   │  │   (Database Layer)                  │    │
+# │  └──────────────────────┘  └──────────────────────────────────────┘    │
+# └─────────────────────────────────────────────────────────────────────────┘
+# ```
+# =============================================================================
+
+[dependencies]
+# Workspace crates
+titan-core = { path = "../../../crates/titan-core" }
+titan-db = { path = "../../../crates/titan-db" }
+
+# Tauri v2 - The core framework for building desktop apps
+# See: https://v2.tauri.app/
+tauri = { version = "2", features = [] }
+
+# Serde for JSON serialization of command responses
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Tokio for async runtime (Tauri uses it internally)
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# Tracing for structured logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Chrono for timestamps (re-export from titan-core)
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID for generating IDs
+uuid = { version = "1", features = ["v4"] }
+
+# thiserror for error handling
+thiserror = "1"
+
+# Directories for finding app data folder
+directories = "5"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+default = ["custom-protocol"]
+# This feature is used for production builds or when a dev server is not specified.
+custom-protocol = ["tauri/custom-protocol"]

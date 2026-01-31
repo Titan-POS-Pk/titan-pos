@@ -1,0 +1,67 @@
+# =============================================================================
+# titan-core: Pure Business Logic Crate
+# =============================================================================
+#
+# This crate contains the PURE business logic for Titan POS.
+# 
+# ## Golden Rule: NO I/O ALLOWED
+# ```
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │                         titan-core                                      │
+# │                                                                         │
+# │   ✅ ALLOWED                          ❌ FORBIDDEN                      │
+# │   ─────────────────────────────────   ─────────────────────────────     │
+# │   • Pure calculations                 • Database queries                │
+# │   • Data validation                   • Network requests                │
+# │   • Type definitions                  • File system access              │
+# │   • Business rules                    • Any async I/O                   │
+# │   • Cart math                         • External API calls              │
+# │   • Tax calculations                  • Hardware access                 │
+# │                                                                         │
+# └─────────────────────────────────────────────────────────────────────────┘
+# ```
+#
+# ## Why This Matters
+# - 100% testable without mocks
+# - Compiles to WASM if needed
+# - Can be shared with cloud services
+# - Guarantees no side effects
+#
+# =============================================================================
+
+[package]
+name = "titan-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Enable sqlx derives for database integration (used by titan-db)
+# This adds Type/Encode/Decode derives to enums like SaleStatus, PaymentMethod
+sqlx = ["dep:sqlx"]
+
+[dependencies]
+# Serialization - for data transfer objects
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling - for domain errors
+thiserror = { workspace = true }
+
+# UUIDs - for entity identification
+uuid = { workspace = true }
+
+# Date/time - for timestamps (no I/O, just types)
+chrono = { workspace = true }
+
+# TypeScript bindings - generate .ts files from Rust types
+ts-rs = { workspace = true }
+
+# Optional: sqlx for database derives (only types, no runtime)
+sqlx = { workspace = true, optional = true }
+
+[dev-dependencies]
+# For testing
+tokio = { workspace = true, features = ["macros", "rt"] }

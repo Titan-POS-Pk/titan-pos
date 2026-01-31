@@ -1,0 +1,76 @@
+# =============================================================================
+# titan-db: Database Layer for Titan POS
+# =============================================================================
+#
+# This crate handles all database operations using SQLite for local storage.
+#
+# ## Responsibility
+# ```
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │                          titan-db                                       │
+# │                                                                         │
+# │  ✅ RESPONSIBILITIES                   ❌ NOT RESPONSIBLE FOR           │
+# │  ──────────────────────                ─────────────────────────        │
+# │  • Connection pool management          • Business logic (titan-core)    │
+# │  • SQL query execution                 • UI/API formatting              │
+# │  • Schema migrations                   • Network/sync (titan-sync)      │
+# │  • Repository implementations          • Hardware access                │
+# │  • Transaction management                                               │
+# │  • FTS5 full-text search                                               │
+# │                                                                         │
+# └─────────────────────────────────────────────────────────────────────────┘
+# ```
+#
+# ## Key Features
+# - sqlx for compile-time query verification
+# - Embedded migrations (no runtime SQL files)
+# - Connection pooling with SqlitePool
+# - WAL mode for concurrent reads
+#
+# =============================================================================
+
+[package]
+name = "titan-db"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal dependency - pure types from titan-core
+# Enable sqlx feature for database derives (SaleStatus, PaymentMethod enums)
+titan-core = { path = "../titan-core", features = ["sqlx"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Database - async SQLite with compile-time verification
+sqlx = { workspace = true }
+
+# Serialization - for JSON payload in sync_outbox
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# UUIDs for ID generation
+uuid = { workspace = true }
+
+# Date/time
+chrono = { workspace = true }
+
+[dev-dependencies]
+# Test utilities
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+# Build script needs to create the database for sqlx
+[build-dependencies]
+
+# Binary for seeding test data
+[[bin]]
+name = "seed"
+path = "src/bin/seed.rs"

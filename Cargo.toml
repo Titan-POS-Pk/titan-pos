@@ -1,0 +1,141 @@
+# =============================================================================
+# Titan POS - Rust Workspace Configuration
+# =============================================================================
+#
+# This is the root Cargo.toml that defines the Rust workspace structure.
+#
+# ## Workspace Architecture
+# ```
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │                         Titan POS Workspace                             │
+# │                                                                         │
+# │  Level 0 (No deps):     ┌─────────────┐                                │
+# │                         │ titan-core  │  Pure business logic           │
+# │                         │ (no I/O)    │  Money, Cart, Validation       │
+# │                         └──────┬──────┘                                │
+# │                                │                                        │
+# │  Level 1 (Core only):   ┌──────┴──────┐                                │
+# │                         │             │                                 │
+# │                    ┌────┴────┐  ┌─────┴─────┐                          │
+# │                    │titan-db │  │titan-sync │  (future)                │
+# │                    │ SQLite  │  │   CRDT    │                          │
+# │                    └────┬────┘  └───────────┘                          │
+# │                         │                                               │
+# │  Level 2 (App):    ┌────┴────────────────┐                             │
+# │                    │   apps/desktop      │  Tauri v2 Application       │
+# │                    │   (src-tauri)       │                             │
+# │                    └─────────────────────┘                             │
+# └─────────────────────────────────────────────────────────────────────────┘
+# ```
+#
+# ## Key Principles
+# - titan-core has ZERO I/O dependencies (fully testable)
+# - titan-db owns all database operations
+# - titan-sync handles cloud synchronization (future)
+# - Desktop app is a thin orchestration layer
+#
+# =============================================================================
+
+[workspace]
+# Define all crates in the workspace
+# Order matters: dependencies must be listed before dependents
+members = [
+    "crates/titan-core",      # Pure business logic (no I/O)
+    "crates/titan-db",        # Database layer (SQLite)
+    # "crates/titan-sync",    # Sync engine (future - v0.5+)
+    "apps/desktop/src-tauri", # Tauri desktop application
+]
+
+# Workspace-level dependency resolution
+# This ensures all crates use the same versions of shared dependencies
+resolver = "2"
+
+# =============================================================================
+# Shared Dependencies
+# =============================================================================
+# These versions are shared across all workspace members.
+# Individual crates reference these via `workspace = true`
+#
+# Example in crate Cargo.toml:
+#   [dependencies]
+#   serde = { workspace = true }
+
+[workspace.dependencies]
+# -----------------------------------------------------------------------------
+# Serialization
+# -----------------------------------------------------------------------------
+# serde: The de-facto standard for Rust serialization
+# Used for: JSON APIs, database serialization, IPC with frontend
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# -----------------------------------------------------------------------------
+# Error Handling  
+# -----------------------------------------------------------------------------
+# thiserror: Derive macro for custom error types
+# Used for: Domain errors, DB errors, API errors
+# Why not anyhow? thiserror gives us typed errors for library code
+thiserror = "1.0"
+
+# -----------------------------------------------------------------------------
+# Async Runtime
+# -----------------------------------------------------------------------------
+# tokio: The async runtime powering all I/O operations
+# Features:
+#   - sync: Mutex, RwLock for shared state
+#   - macros: #[tokio::main], #[tokio::test]
+#   - rt-multi-thread: Multi-threaded runtime for production
+tokio = { version = "1.0", features = ["sync", "macros", "rt-multi-thread"] }
+
+# -----------------------------------------------------------------------------
+# Database
+# -----------------------------------------------------------------------------
+# sqlx: Async SQL toolkit with compile-time query verification
+# Features:
+#   - runtime-tokio: Use Tokio as async runtime
+#   - sqlite: SQLite database support
+#   - migrate: Embedded migrations
+#   - chrono: DateTime support
+#   - derive: Enable FromRow, Type, Encode, Decode derive macros
+# 
+# IMPORTANT: Run `cargo sqlx prepare` before building for offline mode
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "chrono", "derive"] }
+
+# -----------------------------------------------------------------------------
+# Identifiers
+# -----------------------------------------------------------------------------
+# uuid: UUID generation for primary keys
+# Why UUID v4? Globally unique without coordination (offline-safe)
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# -----------------------------------------------------------------------------
+# Date/Time
+# -----------------------------------------------------------------------------
+# chrono: Date and time handling
+# Used for: Timestamps, receipt dates, sync tracking
+chrono = { version = "0.4", features = ["serde"] }
+
+# -----------------------------------------------------------------------------
+# Logging & Tracing
+# -----------------------------------------------------------------------------
+# tracing: Structured logging for async code
+# Better than log crate for async context propagation
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# -----------------------------------------------------------------------------
+# TypeScript Bindings Generation
+# -----------------------------------------------------------------------------
+# ts-rs: Generate TypeScript types from Rust structs
+# Ensures frontend/backend type safety without manual sync
+ts-rs = "10.0"
+
+# =============================================================================
+# Workspace Metadata
+# =============================================================================
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Titan POS Team"]
+license = "MIT"
+repository = "https://github.com/abd-ulbasit/titan-pos"
