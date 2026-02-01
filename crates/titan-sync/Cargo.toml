@@ -99,5 +99,22 @@ chrono = { workspace = true }
 # URL parsing
 url = "2.5"
 
+# -----------------------------------------------------------------------------
+# gRPC Client (Milestone 3: Cloud Uplink)
+# -----------------------------------------------------------------------------
+# tonic: gRPC client for cloud sync
+# Used by PRIMARY nodes to upload to cloud and receive updates
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
+prost-types = "0.13"
+tokio-stream = "0.1"
+
+# JWT for cloud authentication
+jsonwebtoken = "9"
+
+[build-dependencies]
+# Proto compilation for gRPC client
+tonic-build = "0.12"
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

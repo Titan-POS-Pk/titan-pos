@@ -1,0 +1,594 @@
+// =============================================================================
+// Titan POS - Cloud Sync Protocol Definition
+// =============================================================================
+//
+// gRPC service definitions for Store Hub ↔ Cloud communication.
+//
+// ## Architecture
+// ```
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │                     gRPC Communication Flow                             │
+// │                                                                         │
+// │  Store Hub (PRIMARY)                    Cloud API                       │
+// │  ┌─────────────────────┐               ┌─────────────────────┐         │
+// │  │                     │               │                     │         │
+// │  │  CloudUplinkClient ─┼───────────────┼─► AuthService       │         │
+// │  │                     │  gRPC/TLS     │   SyncService       │         │
+// │  │                     │  Streaming    │   ConfigService     │         │
+// │  │                     │◄──────────────┼─  NotifyService     │         │
+// │  │                     │               │                     │         │
+// │  └─────────────────────┘               └─────────────────────┘         │
+// │                                                                         │
+// └─────────────────────────────────────────────────────────────────────────┘
+// ```
+
+syntax = "proto3";
+
+package titan.sync.v1;
+
+// =============================================================================
+// Common Types
+// =============================================================================
+
+// Timestamp in RFC3339 format (e.g., "2026-02-01T12:00:00Z")
+message Timestamp {
+    string value = 1;
+}
+
+// Money amount in cents (integer)
+message Money {
+    int64 cents = 1;
+    string currency = 2; // ISO 4217 code, default "USD"
+}
+
+// Sync cursor for tracking position
+message SyncCursor {
+    int64 position = 1;
+    string stream = 2;
+    Timestamp updated_at = 3;
+}
+
+// =============================================================================
+// Authentication Service
+// =============================================================================
+
+// AuthService handles store authentication with the cloud.
+//
+// Flow:
+// 1. Store sends API key in ExchangeToken request
+// 2. Cloud validates and returns JWT access token
+// 3. All subsequent requests include JWT in metadata
+service AuthService {
+    // Exchange API key for JWT access token
+    rpc ExchangeToken(ExchangeTokenRequest) returns (ExchangeTokenResponse);
+    
+    // Refresh an expiring token
+    rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+    
+    // Revoke a token (logout)
+    rpc RevokeToken(RevokeTokenRequest) returns (RevokeTokenResponse);
+}
+
+message ExchangeTokenRequest {
+    // Store's API key (provisioned during setup)
+    string api_key = 1;
+    
+    // Store identification
+    string store_id = 2;
+    string tenant_id = 3;
+    
+    // Device making the request
+    string device_id = 4;
+    string device_name = 5;
+}
+
+message ExchangeTokenResponse {
+    // JWT access token (include in Authorization header)
+    string access_token = 1;
+    
+    // Refresh token for getting new access tokens
+    string refresh_token = 2;
+    
+    // When the access token expires (seconds from now)
+    int64 expires_in = 3;
+    
+    // Token type (always "Bearer")
+    string token_type = 4;
+}
+
+message RefreshTokenRequest {
+    string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+    string access_token = 1;
+    string refresh_token = 2;
+    int64 expires_in = 3;
+}
+
+message RevokeTokenRequest {
+    string token = 1;
+}
+
+message RevokeTokenResponse {
+    bool success = 1;
+}
+
+// =============================================================================
+// Sync Service
+// =============================================================================
+
+// SyncService handles bidirectional data synchronization.
+//
+// Upload Flow (Store → Cloud):
+// - Sales, payments, inventory deltas uploaded in batches
+// - Cloud acknowledges each batch with sync cursor
+//
+// Download Flow (Cloud → Store):
+// - Products, prices, config pushed via streaming
+// - Store acknowledges receipt
+service SyncService {
+    // Upload a batch of entities (sales, payments, inventory deltas)
+    rpc UploadBatch(UploadBatchRequest) returns (UploadBatchResponse);
+    
+    // Stream upload for large batches (bidirectional streaming)
+    rpc StreamUpload(stream UploadBatchRequest) returns (stream UploadBatchResponse);
+    
+    // Get pending downloads for this store
+    rpc GetPendingUpdates(GetPendingUpdatesRequest) returns (stream EntityUpdate);
+    
+    // Acknowledge receipt of updates
+    rpc AcknowledgeUpdates(AcknowledgeUpdatesRequest) returns (AcknowledgeUpdatesResponse);
+    
+    // Get current sync status
+    rpc GetSyncStatus(GetSyncStatusRequest) returns (GetSyncStatusResponse);
+    
+    // Report sync cursor position
+    rpc ReportCursor(ReportCursorRequest) returns (ReportCursorResponse);
+}
+
+// -----------------------------------------------------------------------------
+// Upload Messages
+// -----------------------------------------------------------------------------
+
+message UploadBatchRequest {
+    // Batch metadata
+    string batch_id = 1;
+    string store_id = 2;
+    string device_id = 3;
+    
+    // Entities to upload
+    repeated SyncEntity entities = 4;
+    
+    // Current cursor positions
+    repeated SyncCursor cursors = 5;
+}
+
+message SyncEntity {
+    // Entity identification
+    string entity_id = 1;
+    string entity_type = 2; // "SALE", "PAYMENT", "INVENTORY_DELTA", "SALE_ITEM"
+    
+    // Entity data (one of)
+    oneof data {
+        Sale sale = 10;
+        SaleItem sale_item = 11;
+        Payment payment = 12;
+        InventoryDelta inventory_delta = 13;
+    }
+    
+    // Metadata
+    Timestamp created_at = 20;
+    int64 device_sequence = 21;
+}
+
+message UploadBatchResponse {
+    // Batch acknowledgement
+    string batch_id = 1;
+    bool success = 2;
+    
+    // Successfully synced entity IDs
+    repeated string synced_ids = 3;
+    
+    // Failed entities with error details
+    repeated SyncError errors = 4;
+    
+    // Updated cursor
+    SyncCursor new_cursor = 5;
+}
+
+message SyncError {
+    string entity_id = 1;
+    string error_code = 2;
+    string error_message = 3;
+    bool retryable = 4;
+}
+
+// -----------------------------------------------------------------------------
+// Download Messages
+// -----------------------------------------------------------------------------
+
+message GetPendingUpdatesRequest {
+    string store_id = 1;
+    
+    // Filter by entity types (empty = all)
+    repeated string entity_types = 2;
+    
+    // Resume from cursor
+    SyncCursor cursor = 3;
+    
+    // Max updates to return (0 = unlimited streaming)
+    int32 limit = 4;
+}
+
+message EntityUpdate {
+    string update_id = 1;
+    string entity_type = 2; // "PRODUCT", "TAX_RATE", "CONFIG", "USER"
+    string operation = 3; // "CREATE", "UPDATE", "DELETE"
+    
+    // Entity data (one of)
+    oneof data {
+        Product product = 10;
+        TaxRate tax_rate = 11;
+        StoreConfig store_config = 12;
+        User user = 13;
+    }
+    
+    // Version for conflict detection
+    int64 version = 20;
+    Timestamp updated_at = 21;
+}
+
+message AcknowledgeUpdatesRequest {
+    string store_id = 1;
+    repeated string update_ids = 2;
+    SyncCursor new_cursor = 3;
+}
+
+message AcknowledgeUpdatesResponse {
+    bool success = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Status Messages
+// -----------------------------------------------------------------------------
+
+message GetSyncStatusRequest {
+    string store_id = 1;
+}
+
+message GetSyncStatusResponse {
+    // Connection status
+    bool connected = 1;
+    Timestamp last_sync = 2;
+    
+    // Pending items
+    int64 pending_uploads = 3;
+    int64 pending_downloads = 4;
+    
+    // Cursor positions
+    repeated SyncCursor cursors = 5;
+    
+    // Health
+    string health_status = 6; // "HEALTHY", "DEGRADED", "UNHEALTHY"
+    string health_message = 7;
+}
+
+message ReportCursorRequest {
+    string store_id = 1;
+    string stream = 2;
+    int64 position = 3;
+}
+
+message ReportCursorResponse {
+    bool success = 1;
+    int64 server_position = 2;
+}
+
+// =============================================================================
+// Notification Service
+// =============================================================================
+
+// NotificationService provides server-push notifications to stores.
+//
+// Uses bidirectional streaming for real-time updates:
+// - Store subscribes with topics of interest
+// - Cloud pushes notifications as they occur
+service NotificationService {
+    // Subscribe to real-time notifications
+    rpc Subscribe(stream SubscriptionMessage) returns (stream Notification);
+}
+
+message SubscriptionMessage {
+    string store_id = 1;
+    
+    // Topics to subscribe to
+    repeated string topics = 2; // "PRODUCT_UPDATE", "PRICE_CHANGE", "CONFIG_UPDATE", "ALERT"
+    
+    // Heartbeat acknowledgment
+    bool heartbeat_ack = 3;
+}
+
+message Notification {
+    string notification_id = 1;
+    string topic = 2;
+    Timestamp timestamp = 3;
+    
+    // Notification payload (one of)
+    oneof payload {
+        ProductUpdateNotification product_update = 10;
+        PriceChangeNotification price_change = 11;
+        ConfigUpdateNotification config_update = 12;
+        AlertNotification alert = 13;
+        HeartbeatNotification heartbeat = 14;
+    }
+}
+
+message ProductUpdateNotification {
+    string product_id = 1;
+    string operation = 2; // "CREATE", "UPDATE", "DELETE"
+    Product product = 3;
+}
+
+message PriceChangeNotification {
+    string product_id = 1;
+    Money old_price = 2;
+    Money new_price = 3;
+    Timestamp effective_at = 4;
+}
+
+message ConfigUpdateNotification {
+    string config_key = 1;
+    string config_value = 2;
+}
+
+message AlertNotification {
+    string alert_id = 1;
+    string severity = 2; // "INFO", "WARNING", "ERROR", "CRITICAL"
+    string title = 3;
+    string message = 4;
+}
+
+message HeartbeatNotification {
+    Timestamp server_time = 1;
+}
+
+// =============================================================================
+// Config Service
+// =============================================================================
+
+// ConfigService manages store configuration from the cloud.
+service ConfigService {
+    // Get full store configuration
+    rpc GetStoreConfig(GetStoreConfigRequest) returns (GetStoreConfigResponse);
+    
+    // Get specific config value
+    rpc GetConfigValue(GetConfigValueRequest) returns (GetConfigValueResponse);
+    
+    // Update config value (if permitted)
+    rpc UpdateConfigValue(UpdateConfigValueRequest) returns (UpdateConfigValueResponse);
+}
+
+message GetStoreConfigRequest {
+    string store_id = 1;
+}
+
+message GetStoreConfigResponse {
+    StoreConfig config = 1;
+}
+
+message GetConfigValueRequest {
+    string store_id = 1;
+    string key = 2;
+}
+
+message GetConfigValueResponse {
+    string key = 1;
+    string value = 2;
+    Timestamp updated_at = 3;
+}
+
+message UpdateConfigValueRequest {
+    string store_id = 1;
+    string key = 2;
+    string value = 3;
+}
+
+message UpdateConfigValueResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
+// =============================================================================
+// Health Service
+// =============================================================================
+
+// HealthService for connection health checks.
+service HealthService {
+    // Simple health check
+    rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+    
+    // Streaming health check (keepalive)
+    rpc Watch(HealthCheckRequest) returns (stream HealthCheckResponse);
+}
+
+message HealthCheckRequest {
+    string service = 1; // Empty = overall health
+}
+
+message HealthCheckResponse {
+    enum ServingStatus {
+        UNKNOWN = 0;
+        SERVING = 1;
+        NOT_SERVING = 2;
+    }
+    ServingStatus status = 1;
+    string message = 2;
+    Timestamp server_time = 3;
+}
+
+// =============================================================================
+// Entity Definitions
+// =============================================================================
+
+// Sale record
+message Sale {
+    string id = 1;
+    string store_id = 2;
+    string device_id = 3;
+    string receipt_number = 4;
+    
+    // Amounts (all in cents)
+    Money subtotal = 10;
+    Money tax_amount = 11;
+    Money discount_amount = 12;
+    Money total = 13;
+    
+    // Status
+    string status = 20; // "PENDING", "COMPLETED", "VOIDED", "REFUNDED"
+    
+    // Timestamps
+    Timestamp created_at = 30;
+    Timestamp completed_at = 31;
+    
+    // Items (may be empty if sent separately)
+    repeated SaleItem items = 40;
+}
+
+// Sale line item
+message SaleItem {
+    string id = 1;
+    string sale_id = 2;
+    string product_id = 3;
+    
+    // Product snapshot (frozen at sale time)
+    string sku = 10;
+    string name = 11;
+    
+    // Quantities and prices
+    int32 quantity = 20;
+    Money unit_price = 21;
+    Money line_total = 22;
+    Money tax_amount = 23;
+    int32 tax_rate_bps = 24; // Basis points (e.g., 825 = 8.25%)
+}
+
+// Payment record
+message Payment {
+    string id = 1;
+    string sale_id = 2;
+    string store_id = 3;
+    
+    // Payment details
+    string method = 10; // "CASH", "CARD", "EXTERNAL"
+    Money amount = 11;
+    Money change_given = 12;
+    
+    // Reference (for card payments)
+    string reference = 20;
+    string authorization_code = 21;
+    
+    // Timestamps
+    Timestamp created_at = 30;
+}
+
+// Inventory delta (CRDT operation)
+message InventoryDelta {
+    string id = 1;
+    string store_id = 2;
+    string device_id = 3;
+    string product_id = 4;
+    
+    // The delta value (positive = received, negative = sold)
+    int32 delta = 10;
+    
+    // Reason for the change
+    string reason = 11; // "SALE", "VOID", "ADJUSTMENT", "TRANSFER_IN", "TRANSFER_OUT", "RECEIVE"
+    
+    // Reference to related entity
+    string reference_id = 12;
+    
+    // Timestamps
+    Timestamp created_at = 20;
+}
+
+// Product catalog entry
+message Product {
+    string id = 1;
+    string sku = 2;
+    string name = 3;
+    string barcode = 4;
+    
+    // Pricing
+    Money price = 10;
+    Money cost = 11;
+    
+    // Tax
+    string tax_rate_id = 20;
+    int32 tax_rate_bps = 21;
+    
+    // Inventory
+    bool track_inventory = 30;
+    int64 current_stock = 31;
+    int64 low_stock_threshold = 32;
+    
+    // Status
+    bool is_active = 40;
+    
+    // Categorization
+    string category = 50;
+    string department = 51;
+    
+    // Metadata
+    Timestamp created_at = 60;
+    Timestamp updated_at = 61;
+    int64 version = 62;
+}
+
+// Tax rate definition
+message TaxRate {
+    string id = 1;
+    string name = 2;
+    int32 rate_bps = 3; // Basis points (e.g., 825 = 8.25%)
+    bool is_default = 4;
+    bool is_active = 5;
+}
+
+// Store configuration
+message StoreConfig {
+    string store_id = 1;
+    string store_name = 2;
+    string tenant_id = 3;
+    
+    // Location
+    string address = 10;
+    string city = 11;
+    string state = 12;
+    string postal_code = 13;
+    string country = 14;
+    string timezone = 15;
+    
+    // Settings
+    string currency = 20;
+    string tax_mode = 21; // "INCLUSIVE", "EXCLUSIVE"
+    bool allow_negative_inventory = 22;
+    
+    // Receipt settings
+    string receipt_header = 30;
+    string receipt_footer = 31;
+    
+    // Sync settings
+    int32 sync_batch_size = 40;
+    int32 sync_interval_secs = 41;
+}
+
+// User/cashier
+message User {
+    string id = 1;
+    string store_id = 2;
+    string username = 3;
+    string display_name = 4;
+    string role = 5; // "CASHIER", "MANAGER", "ADMIN"
+    bool is_active = 6;
+    string pin_hash = 7; // Hashed PIN for login
+}

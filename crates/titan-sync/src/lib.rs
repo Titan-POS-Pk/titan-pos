@@ -3,7 +3,7 @@
 //! This crate provides the synchronization layer for Titan POS, enabling
 //! offline-first operation with background sync to Store Hub and Cloud.
 //!
-//! ## Architecture Overview (v0.2)
+//! ## Architecture Overview (v0.2+)
 //! ```text
 //! ┌─────────────────────────────────────────────────────────────────────────┐
 //! │                        Sync Agent Architecture                          │
@@ -45,12 +45,23 @@
 //! │  │ Supports immediate or coalesced (50ms window) broadcasting      │   │
 //! │  └─────────────────────────────────────────────────────────────────┘   │
 //! │                                                                         │
+//! │  MILESTONE 3 ADDITIONS:                                                │
+//! │  ────────────────────                                                  │
+//! │  ┌────────────────┐  ┌────────────────┐                                │
+//! │  │  CloudAuth     │  │  CloudUplink   │                                │
+//! │  │                │  │                │                                │
+//! │  │ JWT token mgmt │  │ gRPC client    │                                │
+//! │  │ Auto-refresh   │  │ for cloud API  │                                │
+//! │  │ API key exch.  │  │ Upload/Download│                                │
+//! │  └────────────────┘  └────────────────┘                                │
+//! │                                                                         │
 //! │  STATUS EVENTS (to Frontend via Tauri):                                │
 //! │  • "sync://status" - Connection state changes                          │
 //! │  • "sync://progress" - Upload/download progress                        │
 //! │  • "sync://error" - Sync failures                                      │
 //! │  • "sync://role" - Role changes (PRIMARY/SECONDARY)                    │
 //! │  • "sync://election" - Election events                                 │
+//! │  • "sync://cloud" - Cloud connection events                            │
 //! └─────────────────────────────────────────────────────────────────────────┘
 //! ```
 //!
@@ -70,6 +81,11 @@
 //! - [`election`] - Leader election with fencing tokens
 //! - [`hub`] - WebSocket server for PRIMARY mode
 //! - [`aggregator`] - Inventory delta aggregation and broadcasting
+//!
+//! ### Cloud Uplink Modules (Milestone 3)
+//! - [`proto`] - Generated gRPC client stubs from proto/titan_sync.proto
+//! - [`cloud_auth`] - JWT token management and API key exchange
+//! - [`cloud_uplink`] - gRPC client for cloud sync (PRIMARY → Cloud)
 //!
 //! ## Usage
 //!
@@ -109,6 +125,11 @@ pub mod discovery;
 pub mod election;
 pub mod hub;
 
+// Cloud Uplink modules (Milestone 3)
+pub mod proto;
+pub mod cloud_auth;
+pub mod cloud_uplink;
+
 // =============================================================================
 // Re-exports
 // =============================================================================
@@ -125,3 +146,7 @@ pub use aggregator::{AggregatorConfig, AggregatorHandle, InventoryAggregator};
 pub use discovery::{DiscoveredHub, DiscoveryConfig, DiscoveryHandle, DiscoveryService};
 pub use election::{ElectionConfig, ElectionHandle, ElectionService, ElectionState, NodeRole};
 pub use hub::{HubConfig, HubHandle, HubServer};
+
+// Milestone 3 types
+pub use cloud_auth::{CloudAuth, CloudAuthConfig, TokenInfo};
+pub use cloud_uplink::{CloudUplink, CloudUplinkConfig};

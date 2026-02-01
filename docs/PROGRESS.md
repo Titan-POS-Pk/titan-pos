@@ -1,6 +1,6 @@
 # Titan POS v0.2 - Development Progress
 
-> **Status**: 🟡 In Progress - Milestone 2 Complete  
+> **Status**: � Milestone 3 Complete  
 > **Target**: v0.2 "Store Sync & Auto-Hub"  
 > **Last Updated**: February 2, 2026
 
@@ -92,16 +92,61 @@ Key decisions (from `docs/architecture/SYNC_ARCHITECTURE.md` + your confirmation
 
 ---
 
-### Milestone 3: Cloud Uplink (Primary → Cloud) ⬜
+### Milestone 3: Cloud Uplink (Primary → Cloud) ✅
 **Goal**: Store hub syncs to cloud while POS syncs to hub
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Cloud uplink client | ⬜ | Runs only on PRIMARY |
-| Batch uploads | ⬜ | Sales, payments, inventory deltas |
-| Conflict handling | ⬜ | CRDT delta-state merge |
-| Download updates | ⬜ | Products, prices, config |
-| Sync cursors | ⬜ | Store server cursor tracking |
+| gRPC Protocol Definition | ✅ | `proto/titan_sync.proto` with 5 services |
+| Cloud API crate | ✅ | `apps/cloud-api/` with gRPC server |
+| AuthService | ✅ | API key exchange for JWT tokens |
+| SyncService | ✅ | UploadBatch, StreamUpload, GetPendingUpdates |
+| ConfigService | ✅ | GetStoreConfig, GetConfigValue, UpdateConfigValue |
+| NotificationService | ✅ | Bidirectional streaming for push notifications |
+| HealthService | ✅ | Check and Watch with component health |
+| PostgreSQL Database | ✅ | Cloud database with CRDT inventory merge |
+| PostgreSQL Migrations | ✅ | 3 migration files (schema, downloads, seed data) |
+| Cloud Uplink Client | ✅ | gRPC client in titan-sync crate |
+| JWT Token Management | ✅ | CloudAuth with auto-refresh |
+| Docker Compose | ✅ | cloud-api service with profile |
+
+#### Files Created
+| File | Purpose |
+|------|---------|
+| `proto/titan_sync.proto` | gRPC protocol definitions (~500 lines) |
+| `apps/cloud-api/Cargo.toml` | Cloud API crate manifest |
+| `apps/cloud-api/build.rs` | Proto compilation for server |
+| `apps/cloud-api/Dockerfile` | Multi-stage Docker build |
+| `apps/cloud-api/src/main.rs` | gRPC server entry point |
+| `apps/cloud-api/src/lib.rs` | Module organization |
+| `apps/cloud-api/src/proto/mod.rs` | Generated proto module |
+| `apps/cloud-api/src/config.rs` | Environment-based configuration |
+| `apps/cloud-api/src/db.rs` | PostgreSQL operations (~400 lines) |
+| `apps/cloud-api/src/error.rs` | CloudError with tonic::Status conversion |
+| `apps/cloud-api/src/auth.rs` | JWT token generation/validation |
+| `apps/cloud-api/src/services/mod.rs` | Service module exports |
+| `apps/cloud-api/src/services/auth_service.rs` | AuthService gRPC implementation |
+| `apps/cloud-api/src/services/sync_service.rs` | SyncService gRPC implementation (~350 lines) |
+| `apps/cloud-api/src/services/config_service.rs` | ConfigService gRPC implementation |
+| `apps/cloud-api/src/services/notification_service.rs` | NotificationService with streaming |
+| `apps/cloud-api/src/services/health_service.rs` | HealthService with component checks |
+| `migrations/postgres/001_initial_schema.sql` | Core PostgreSQL tables (~350 lines) |
+| `migrations/postgres/002_pending_downloads.sql` | Download queue with triggers |
+| `migrations/postgres/003_seed_data.sql` | Demo tenant, stores, products |
+| `crates/titan-sync/build.rs` | Proto compilation for client |
+| `crates/titan-sync/src/proto.rs` | Generated gRPC client module |
+| `crates/titan-sync/src/cloud_auth.rs` | JWT token management |
+| `crates/titan-sync/src/cloud_uplink.rs` | gRPC cloud sync client (~550 lines) |
+
+#### Key Architecture Decisions
+- **Protocol**: Pure gRPC over HTTP/2 (no REST, no JSON for sync)
+- **Authentication**: API key → JWT exchange with auto-refresh
+- **Cloud Database**: PostgreSQL with multi-tenant tables (tenant_id, store_id)
+- **Inventory Sync**: CRDT delta merge on cloud side
+- **Downloads**: Trigger-based queue with store-specific versioning
+- **Streaming**: Bidirectional for notifications, server streaming for downloads
+- **Port**: gRPC on 50051 (configurable)
+- **Docker**: Multi-stage build with cargo-chef for caching
 
 ---
 
@@ -111,8 +156,8 @@ Key decisions (from `docs/architecture/SYNC_ARCHITECTURE.md` + your confirmation
 | Task | Status | Notes |
 |------|--------|-------|
 | Store identity configuration | ⬜ | `store_id` added to config |
-| Inventory deltas table | ⬜ | CRDT operation log |
-| Sync protocol messages | ⬜ | Protobuf message schema |
+| Inventory deltas table | ✅ | Already in PostgreSQL schema |
+| Sync protocol messages | ✅ | Already in proto/titan_sync.proto |
 | Store-level aggregation | ⬜ | Inventory + sales aggregation |
 | Failover recovery | ⬜ | Re-elect primary if hub down |
 

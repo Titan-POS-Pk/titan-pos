@@ -181,6 +181,33 @@ pub enum SyncError {
     /// Election error.
     #[error("Election error: {0}")]
     ElectionError(String),
+
+    // =========================================================================
+    // Cloud Uplink Errors (Milestone 3)
+    // =========================================================================
+    /// Failed to connect to cloud API.
+    #[error("Cloud connection failed: {0}")]
+    Connection(String),
+
+    /// Cloud authentication failed.
+    #[error("Cloud authentication failed: {0}")]
+    AuthFailed(String),
+
+    /// Cloud API returned an error.
+    #[error("Cloud API error: {0}")]
+    Cloud(String),
+
+    /// Token expired and refresh failed.
+    #[error("Token expired: {0}")]
+    TokenExpired(String),
+
+    /// Upload to cloud failed.
+    #[error("Upload failed: {0}")]
+    Upload(String),
+
+    /// Download from cloud failed.
+    #[error("Download failed: {0}")]
+    Download(String),
 }
 
 // =============================================================================

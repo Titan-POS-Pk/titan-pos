@@ -1,0 +1,82 @@
+# =============================================================================
+# Titan Cloud API - gRPC Server for Cloud Sync
+# =============================================================================
+#
+# This crate provides the cloud-side gRPC server that Store Hubs connect to.
+#
+# ## Architecture
+# ```
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │                        Cloud API Architecture                           │
+# │                                                                         │
+# │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────┐ │
+# │  │  gRPC Server    │    │  Service Layer  │    │  PostgreSQL         │ │
+# │  │  (tonic)        │───►│  - AuthService  │───►│  - stores           │ │
+# │  │                 │    │  - SyncService  │    │  - sales            │ │
+# │  │  Port: 50051    │    │  - ConfigService│    │  - products         │ │
+# │  └─────────────────┘    └─────────────────┘    └─────────────────────┘ │
+# │          │                                              │               │
+# │          │              ┌─────────────────┐             │               │
+# │          └─────────────►│  Redis          │◄────────────┘               │
+# │                         │  - Pub/Sub      │                             │
+# │                         │  - Caching      │                             │
+# │                         └─────────────────┘                             │
+# └─────────────────────────────────────────────────────────────────────────┘
+# ```
+
+[package]
+name = "titan-cloud-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cloud-api"
+path = "src/main.rs"
+
+[dependencies]
+# gRPC
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
+prost-types = "0.13"
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "net", "signal"] }
+tokio-stream = "0.1"
+
+# Database
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "migrate", "chrono", "derive", "uuid"] }
+
+# Redis
+redis = { version = "0.29", features = ["tokio-comp", "connection-manager"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# JWT authentication
+jsonwebtoken = "9"
+
+# Password hashing
+argon2 = "0.5"
+
+# UUID
+uuid = { workspace = true }
+
+# Date/Time
+chrono = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = "1.0"
+
+# Configuration
+config = { version = "0.14", features = ["toml"] }
+
+[build-dependencies]
+tonic-build = "0.12"

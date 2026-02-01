@@ -1,5 +1,16 @@
 # Titan POS - Docker Compose for Development
 # Usage: docker compose up -d
+#
+# Profiles:
+#   default: postgres, redis (core services)
+#   tools: adminer, redisinsight (database management UIs)
+#   cloud: cloud-api (gRPC server)
+#
+# Examples:
+#   docker compose up -d                    # Core services only
+#   docker compose --profile tools up -d    # With database management UIs
+#   docker compose --profile cloud up -d    # With cloud API
+#   docker compose --profile cloud --profile tools up -d  # Everything
 
 services:
   # PostgreSQL - Cloud database (mimics production)
@@ -41,6 +52,50 @@ services:
       retries: 5
     networks:
       - titan-network
+
+  # ==========================================================================
+  # Cloud API - gRPC Server (Milestone 3)
+  # ==========================================================================
+  # This is the mock cloud server that Store Hubs connect to.
+  # In production, this would be hosted on cloud infrastructure.
+  cloud-api:
+    build:
+      context: .
+      dockerfile: apps/cloud-api/Dockerfile
+    container_name: titan-cloud-api
+    restart: unless-stopped
+    ports:
+      # gRPC port
+      - "50051:50051"
+    environment:
+      # Database
+      DATABASE_URL: postgres://titan:titan_dev_password@postgres:5432/titan_pos
+      # Redis
+      REDIS_URL: redis://redis:6379
+      # Server settings
+      GRPC_PORT: 50051
+      # JWT settings (dev only - use secrets in production)
+      JWT_SECRET: dev-jwt-secret-do-not-use-in-production-12345
+      JWT_ACCESS_EXPIRY_SECS: 3600
+      JWT_REFRESH_EXPIRY_SECS: 604800
+      # Logging
+      RUST_LOG: info,titan_cloud_api=debug,tonic=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Use grpc_health_probe if available, otherwise just check port
+      test: ["CMD-SHELL", "nc -z localhost 50051 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - titan-network
+    profiles:
+      - cloud
 
   # Adminer - Database management UI (dev only)
   adminer:
