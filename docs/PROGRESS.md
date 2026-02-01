@@ -1,3 +1,82 @@
+# Titan POS v0.2 - Development Progress
+
+> **Status**: 🟡 Planning - Sync Architecture Defined  
+> **Target**: v0.2 "Store Sync & Auto-Hub"  
+> **Last Updated**: February 1, 2026
+
+---
+
+## Overview
+
+v0.2 focuses on **in-store multi-device coordination** with an auto-elected Store Server Hub. The system can run in:
+- **Auto mode**: First POS becomes PRIMARY; others connect as SECONDARY
+- **Primary mode**: Dedicated server or specific POS acts as hub
+- **Secondary mode**: Explicitly connect to configured hub
+
+Key decisions (from `docs/architecture/SYNC_ARCHITECTURE.md` + your confirmations):
+- **Discovery**: mDNS + UDP broadcast (both)
+- **Election priority**: Combination (priority config → device_id tiebreak)
+- **Failover**: Conservative default, configurable
+- **Store DB**: Separate store-level database on PRIMARY
+
+---
+
+## Milestones (All part of v0.2)
+
+### Milestone 1: Sync Agent Foundation ⬜
+**Goal**: Core sync engine for POS devices
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Create `titan-sync` crate | ⬜ | New crate in `crates/` |
+| Sync configuration model | ⬜ | Modes: auto/primary/secondary |
+| Outbox processor | ⬜ | Batch uploads from `sync_outbox` |
+| WebSocket client | ⬜ | Reconnect with backoff |
+| Sync acknowledgements | ⬜ | Mark outbox rows as synced |
+| Inbound updates pipeline | ⬜ | Apply product/price/inventory updates |
+
+---
+
+### Milestone 2: Store Hub (Auto-Elected Primary) ⬜
+**Goal**: One POS becomes the Store Server Hub automatically
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Discovery protocol | ⬜ | mDNS + UDP broadcast |
+| Leader election | ⬜ | Priority + device_id tiebreak |
+| Heartbeat monitoring | ⬜ | Conservative defaults, configurable |
+| WebSocket server | ⬜ | Accept POS connections |
+| Separate store DB | ⬜ | Store-level aggregation on PRIMARY |
+| Broadcast inventory updates | ⬜ | Near real-time store-wide updates |
+
+---
+
+### Milestone 3: Cloud Uplink (Primary → Cloud) ⬜
+**Goal**: Store hub syncs to cloud while POS syncs to hub
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Cloud uplink client | ⬜ | Runs only on PRIMARY |
+| Batch uploads | ⬜ | Sales, payments, inventory deltas |
+| Conflict handling | ⬜ | CRDT delta-state merge |
+| Download updates | ⬜ | Products, prices, config |
+| Sync cursors | ⬜ | Store server cursor tracking |
+
+---
+
+### Milestone 4: Multi-Store Readiness ⬜
+**Goal**: Scale from one store to many under one tenant
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Store identity configuration | ⬜ | `store_id` added to config |
+| Inventory deltas table | ⬜ | CRDT operation log |
+| Sync protocol messages | ⬜ | Protobuf message schema |
+| Store-level aggregation | ⬜ | Inventory + sales aggregation |
+| Failover recovery | ⬜ | Re-elect primary if hub down |
+
+---
+
 # Titan POS v0.1 - Development Progress
 
 > **Status**: 🟡 Milestone 4 Complete - v0.1 Ready for Testing  
