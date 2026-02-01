@@ -250,6 +250,191 @@ pub struct SyncSettings {
     pub max_backoff_secs: u64,
 }
 
+// =============================================================================
+// Hub Server Settings (Milestone 2)
+// =============================================================================
+
+/// Configuration for Store Hub server mode.
+///
+/// ## Hub Server Architecture
+/// ```text
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                       Hub Server Settings                               │
+/// │                                                                         │
+/// │  When this device becomes PRIMARY (either through election or forced   │
+/// │  mode), it starts a WebSocket server to accept SECONDARY connections.  │
+/// │                                                                         │
+/// │  Port Selection:                                                       │
+/// │  ─────────────────                                                     │
+/// │  • Default: 8765 (chosen to avoid conflicts with common ports)         │
+/// │  • Can be overridden via config or TITAN_HUB_PORT env var             │
+/// │                                                                         │
+/// │  Bind Address:                                                         │
+/// │  ───────────────                                                       │
+/// │  • Default: 0.0.0.0 (all interfaces)                                   │
+/// │  • Can be restricted to specific interface for security                │
+/// │                                                                         │
+/// └─────────────────────────────────────────────────────────────────────────┘
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HubSettings {
+    /// Port for the WebSocket server.
+    #[serde(default = "default_hub_port")]
+    pub port: u16,
+
+    /// Bind address (default: 0.0.0.0 for all interfaces).
+    #[serde(default = "default_bind_addr")]
+    pub bind_addr: String,
+
+    /// Heartbeat interval for announcing PRIMARY status (seconds).
+    #[serde(default = "default_heartbeat_interval")]
+    pub heartbeat_interval_secs: u64,
+
+    /// Heartbeat timeout before triggering election (seconds).
+    #[serde(default = "default_heartbeat_timeout")]
+    pub heartbeat_timeout_secs: u64,
+
+    /// Inventory broadcast mode.
+    #[serde(default)]
+    pub broadcast_mode: BroadcastMode,
+
+    /// Coalesce window for inventory broadcasts (milliseconds).
+    /// Only used when broadcast_mode is Coalesced.
+    #[serde(default = "default_coalesce_window")]
+    pub coalesce_window_ms: u64,
+}
+
+fn default_hub_port() -> u16 {
+    8765
+}
+
+fn default_bind_addr() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_heartbeat_interval() -> u64 {
+    5
+}
+
+fn default_heartbeat_timeout() -> u64 {
+    15
+}
+
+fn default_coalesce_window() -> u64 {
+    50
+}
+
+impl Default for HubSettings {
+    fn default() -> Self {
+        HubSettings {
+            port: default_hub_port(),
+            bind_addr: default_bind_addr(),
+            heartbeat_interval_secs: default_heartbeat_interval(),
+            heartbeat_timeout_secs: default_heartbeat_timeout(),
+            broadcast_mode: BroadcastMode::default(),
+            coalesce_window_ms: default_coalesce_window(),
+        }
+    }
+}
+
+impl HubSettings {
+    /// Returns the full bind address.
+    pub fn bind_address(&self) -> String {
+        format!("{}:{}", self.bind_addr, self.port)
+    }
+}
+
+/// Inventory broadcast mode.
+///
+/// ## Mode Comparison
+/// ```text
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                      Broadcast Mode Comparison                          │
+/// │                                                                         │
+/// │  IMMEDIATE                          │  COALESCED (Default)              │
+/// │  ──────────                         │  ─────────────────────            │
+/// │  • Broadcast each delta instantly   │  • Batch deltas over 50ms window  │
+/// │  • Lower latency                    │  • Higher latency (50ms max)      │
+/// │  • Higher network traffic           │  • Lower network traffic          │
+/// │  • Best for low-volume stores       │  • Best for high-volume stores    │
+/// │  • No delta merging                 │  • Merges concurrent deltas       │
+/// │                                                                         │
+/// │  Example: POS #1 sells 2 cokes, POS #2 sells 1 coke within 50ms        │
+/// │                                                                         │
+/// │  IMMEDIATE:                         │  COALESCED:                       │
+/// │  → Broadcast: -2 cokes              │  → Wait 50ms...                   │
+/// │  → Broadcast: -1 cokes              │  → Broadcast: -3 cokes            │
+/// │  (2 messages)                       │  (1 message)                      │
+/// │                                                                         │
+/// └─────────────────────────────────────────────────────────────────────────┘
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BroadcastMode {
+    /// Broadcast each inventory delta immediately as it arrives.
+    Immediate,
+
+    /// Coalesce deltas over a time window before broadcasting.
+    #[default]
+    Coalesced,
+}
+
+impl std::fmt::Display for BroadcastMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BroadcastMode::Immediate => write!(f, "immediate"),
+            BroadcastMode::Coalesced => write!(f, "coalesced"),
+        }
+    }
+}
+
+// =============================================================================
+// Discovery Settings (Milestone 2)
+// =============================================================================
+
+/// Configuration for Store Hub discovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoverySettings {
+    /// Enable mDNS discovery.
+    #[serde(default = "default_true")]
+    pub mdns_enabled: bool,
+
+    /// Enable UDP broadcast discovery (fallback).
+    #[serde(default = "default_true")]
+    pub udp_enabled: bool,
+
+    /// UDP broadcast port.
+    #[serde(default = "default_discovery_port")]
+    pub udp_port: u16,
+
+    /// Discovery timeout (seconds).
+    #[serde(default = "default_discovery_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_discovery_port() -> u16 {
+    5555
+}
+
+fn default_discovery_timeout() -> u64 {
+    3
+}
+
+impl Default for DiscoverySettings {
+    fn default() -> Self {
+        DiscoverySettings {
+            mdns_enabled: true,
+            udp_enabled: true,
+            udp_port: default_discovery_port(),
+            timeout_secs: default_discovery_timeout(),
+        }
+    }
+}
+
 fn default_batch_size() -> usize {
     100
 }
@@ -305,6 +490,16 @@ impl Default for SyncSettings {
 /// mode = "auto"
 /// batch_size = 100
 /// poll_interval_secs = 5
+///
+/// [hub]
+/// port = 8765
+/// broadcast_mode = "coalesced"
+/// coalesce_window_ms = 50
+///
+/// [discovery]
+/// mdns_enabled = true
+/// udp_enabled = true
+/// udp_port = 5555
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncConfig {
@@ -319,6 +514,14 @@ pub struct SyncConfig {
     /// Sync behavior settings.
     #[serde(default)]
     pub sync: SyncSettings,
+
+    /// Hub server settings (for PRIMARY mode).
+    #[serde(default)]
+    pub hub: HubSettings,
+
+    /// Discovery settings.
+    #[serde(default)]
+    pub discovery: DiscoverySettings,
 }
 
 impl SyncConfig {
@@ -422,6 +625,13 @@ impl SyncConfig {
             self.device.name = name;
         }
 
+        // Device priority
+        if let Ok(priority) = std::env::var("TITAN_DEVICE_PRIORITY") {
+            if let Ok(p) = priority.parse::<u8>() {
+                self.device.priority = p;
+            }
+        }
+
         // Sync mode
         if let Ok(mode) = std::env::var("TITAN_SYNC_MODE") {
             if let Ok(parsed) = mode.parse() {
@@ -439,6 +649,23 @@ impl SyncConfig {
         // Store ID
         if let Ok(id) = std::env::var("TITAN_STORE_ID") {
             self.store.id = id;
+        }
+
+        // Hub port
+        if let Ok(port) = std::env::var("TITAN_HUB_PORT") {
+            if let Ok(p) = port.parse::<u16>() {
+                debug!(port = p, "Overriding hub port from environment");
+                self.hub.port = p;
+            }
+        }
+
+        // Broadcast mode
+        if let Ok(mode) = std::env::var("TITAN_BROADCAST_MODE") {
+            match mode.to_lowercase().as_str() {
+                "immediate" => self.hub.broadcast_mode = BroadcastMode::Immediate,
+                "coalesced" => self.hub.broadcast_mode = BroadcastMode::Coalesced,
+                _ => warn!(mode = %mode, "Unknown broadcast mode in environment"),
+            }
         }
     }
 

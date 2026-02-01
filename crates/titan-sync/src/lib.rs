@@ -3,7 +3,7 @@
 //! This crate provides the synchronization layer for Titan POS, enabling
 //! offline-first operation with background sync to Store Hub and Cloud.
 //!
-//! ## Architecture Overview
+//! ## Architecture Overview (v0.2)
 //! ```text
 //! ┌─────────────────────────────────────────────────────────────────────────┐
 //! │                        Sync Agent Architecture                          │
@@ -26,15 +26,37 @@
 //! │  │ Sends to hub   │  │                │  │                        │    │
 //! │  └────────────────┘  └────────────────┘  └────────────────────────┘    │
 //! │                                                                         │
+//! │  MILESTONE 2 ADDITIONS:                                                │
+//! │  ────────────────────                                                  │
+//! │  ┌────────────────┐  ┌────────────────┐  ┌────────────────────────┐    │
+//! │  │   Discovery    │  │   Election     │  │     Hub Server         │    │
+//! │  │                │  │                │  │                        │    │
+//! │  │ mDNS + UDP     │  │ Leader elect   │  │ Axum WebSocket for     │    │
+//! │  │ broadcast for  │  │ with fencing   │  │ accepting SECONDARY    │    │
+//! │  │ hub discovery  │  │ tokens         │  │ connections            │    │
+//! │  └────────────────┘  └────────────────┘  └────────────────────────┘    │
+//! │                                                                         │
+//! │  ┌─────────────────────────────────────────────────────────────────┐   │
+//! │  │                    Inventory Aggregator                          │   │
+//! │  │                                                                 │   │
+//! │  │ Receives inventory deltas from SECONDARY devices                │   │
+//! │  │ Aggregates using CRDT principles (additive deltas)              │   │
+//! │  │ Broadcasts updates to all connected devices                     │   │
+//! │  │ Supports immediate or coalesced (50ms window) broadcasting      │   │
+//! │  └─────────────────────────────────────────────────────────────────┘   │
+//! │                                                                         │
 //! │  STATUS EVENTS (to Frontend via Tauri):                                │
 //! │  • "sync://status" - Connection state changes                          │
 //! │  • "sync://progress" - Upload/download progress                        │
 //! │  • "sync://error" - Sync failures                                      │
+//! │  • "sync://role" - Role changes (PRIMARY/SECONDARY)                    │
+//! │  • "sync://election" - Election events                                 │
 //! └─────────────────────────────────────────────────────────────────────────┘
 //! ```
 //!
 //! ## Module Organization
 //!
+//! ### Core Modules (Milestone 1)
 //! - [`agent`] - Main `SyncAgent` orchestrator
 //! - [`config`] - Sync configuration (mode, device ID, hub URL)
 //! - [`error`] - Sync error types
@@ -43,6 +65,12 @@
 //! - [`protocol`] - Message types for sync communication
 //! - [`transport`] - WebSocket client with reconnection
 //!
+//! ### Store Hub Modules (Milestone 2)
+//! - [`discovery`] - mDNS + UDP broadcast hub discovery
+//! - [`election`] - Leader election with fencing tokens
+//! - [`hub`] - WebSocket server for PRIMARY mode
+//! - [`aggregator`] - Inventory delta aggregation and broadcasting
+//!
 //! ## Usage
 //!
 //! ```rust,ignore
@@ -50,7 +78,7 @@
 //! use titan_db::Database;
 //!
 //! // Create sync configuration
-//! let config = SyncConfig::load_or_default()?;
+//! let config = SyncConfig::load_or_default(None);
 //!
 //! // Create and start sync agent
 //! let agent = SyncAgent::new(config, database);
@@ -59,12 +87,14 @@
 //! // Query sync status
 //! let status = agent.status().await;
 //! println!("Connected: {}", status.is_connected);
+//! println!("Role: {:?}", status.role);
 //! ```
 
 // =============================================================================
 // Module Declarations
 // =============================================================================
 
+// Core sync modules (Milestone 1)
 pub mod agent;
 pub mod config;
 pub mod error;
@@ -73,12 +103,25 @@ pub mod outbox;
 pub mod protocol;
 pub mod transport;
 
+// Store Hub modules (Milestone 2)
+pub mod aggregator;
+pub mod discovery;
+pub mod election;
+pub mod hub;
+
 // =============================================================================
 // Re-exports
 // =============================================================================
 
+// Core types
 pub use agent::{SyncAgent, SyncAgentHandle, SyncEventEmitter, SyncStatus};
-pub use config::{SyncConfig, SyncMode};
+pub use config::{BroadcastMode, HubSettings, SyncConfig, SyncMode};
 pub use error::{SyncError, SyncResult};
-pub use protocol::{SyncMessage, SyncMessageKind};
+pub use protocol::SyncMessage;
 pub use transport::ConnectionState;
+
+// Milestone 2 types
+pub use aggregator::{AggregatorConfig, AggregatorHandle, InventoryAggregator};
+pub use discovery::{DiscoveredHub, DiscoveryConfig, DiscoveryHandle, DiscoveryService};
+pub use election::{ElectionConfig, ElectionHandle, ElectionService, ElectionState, NodeRole};
+pub use hub::{HubConfig, HubHandle, HubServer};

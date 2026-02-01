@@ -45,7 +45,7 @@ use crate::config::{SyncConfig, SyncMode};
 use crate::error::{SyncError, SyncResult};
 use crate::inbound::{InboundHandler, InboundHandlerHandle};
 use crate::outbox::{OutboxProcessor, OutboxProcessorHandle};
-use crate::protocol::{make_hello, SyncMessage, SyncMessageKind, WelcomePayload};
+use crate::protocol::SyncMessage;
 use crate::transport::{ConnectionState, Transport, TransportConfig, TransportHandle};
 
 // =============================================================================
@@ -335,78 +335,70 @@ impl SyncAgent {
                         s.is_connected = true;
                     }
 
-                    match msg.kind {
-                        SyncMessageKind::Welcome => {
+                    match msg {
+                        SyncMessage::Welcome(welcome) => {
                             // Handshake complete
-                            match msg.extract_payload::<WelcomePayload>() {
-                                Ok(welcome) => {
-                                    info!(
-                                        store_id = %welcome.store_id,
-                                        sync_cursor = welcome.sync_cursor,
-                                        "Handshake complete"
-                                    );
-                                    handshake_done = true;
+                            info!(
+                                store_id = %welcome.store_id,
+                                term = welcome.election_term,
+                                "Handshake complete"
+                            );
+                            handshake_done = true;
 
-                                    // Update status
-                                    let s = status.read().await.clone();
-                                    emitter.emit_status(&s);
-                                }
-                                Err(e) => {
-                                    error!(?e, "Failed to parse Welcome message");
-                                }
-                            }
+                            // Update status
+                            let s = status.read().await.clone();
+                            emitter.emit_status(&s);
                         }
 
-                        SyncMessageKind::BatchAck => {
+                        SyncMessage::BatchAck(ack) => {
                             // Route to outbox processor
-                            if let Err(e) = outbox_handle.handle_ack(msg).await {
+                            if let Err(e) = outbox_handle.handle_ack(SyncMessage::BatchAck(ack)).await {
                                 error!(?e, "Failed to route batch ack");
                             }
                         }
 
-                        SyncMessageKind::EntityUpdate => {
+                        SyncMessage::EntityUpdate(update) => {
                             // Route to inbound handler
-                            if let Err(e) = inbound_handle.handle_update(msg).await {
+                            if let Err(e) = inbound_handle.handle_update(SyncMessage::EntityUpdate(update)).await {
                                 error!(?e, "Failed to route entity update");
                             }
                         }
 
-                        SyncMessageKind::Ping => {
+                        SyncMessage::Ping { .. } => {
                             // Send pong (handled by transport layer, but log it)
                             debug!("Received ping");
                         }
 
-                        SyncMessageKind::Pong => {
+                        SyncMessage::Pong { .. } => {
                             debug!("Received pong");
                         }
 
-                        SyncMessageKind::Error => {
+                        SyncMessage::Error { code, message: msg_text } => {
                             // Handle error from hub
-                            warn!(?msg, "Received error from hub");
+                            warn!(code = %code, message = %msg_text, "Received error from hub");
                             let mut s = status.write().await;
-                            s.last_error = Some(format!("{:?}", msg.payload));
-                            emitter.emit_error(&format!("{:?}", msg.payload), true);
+                            s.last_error = Some(format!("{}: {}", code, msg_text));
+                            emitter.emit_error(&format!("{}: {}", code, msg_text), true);
                         }
 
-                        _ => {
-                            debug!(kind = ?msg.kind, "Unhandled message type");
+                        other => {
+                            debug!(?other, "Unhandled message type");
                         }
                     }
 
                     // Send Hello if connected but not handshaked
                     if transport.is_connected().await && !handshake_done {
-                        let hello = make_hello(
+                        let hello = SyncMessage::hello(
                             config.device_id(),
                             &config.device.name,
                             config.store_id(),
+                            config.device.priority,
                         );
 
-                        if let Ok(hello_msg) = hello {
-                            if let Err(e) = transport.send(hello_msg).await {
-                                error!(?e, "Failed to send Hello");
-                            } else {
-                                debug!("Sent Hello message");
-                            }
+                        if let Err(e) = transport.send(hello).await {
+                            error!(?e, "Failed to send Hello");
+                        } else {
+                            debug!("Sent Hello message");
                         }
                     }
                 }

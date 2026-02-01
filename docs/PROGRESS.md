@@ -1,6 +1,6 @@
 # Titan POS v0.2 - Development Progress
 
-> **Status**: 🟡 In Progress - Milestone 1 Complete  
+> **Status**: 🟡 In Progress - Milestone 2 Complete  
 > **Target**: v0.2 "Store Sync & Auto-Hub"  
 > **Last Updated**: February 2, 2026
 
@@ -58,17 +58,37 @@ Key decisions (from `docs/architecture/SYNC_ARCHITECTURE.md` + your confirmation
 
 ---
 
-### Milestone 2: Store Hub (Auto-Elected Primary) ⬜
+### Milestone 2: Store Hub (Auto-Elected Primary) ✅
 **Goal**: One POS becomes the Store Server Hub automatically
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Discovery protocol | ⬜ | mDNS + UDP broadcast |
-| Leader election | ⬜ | Priority + device_id tiebreak |
-| Heartbeat monitoring | ⬜ | Conservative defaults, configurable |
-| WebSocket server | ⬜ | Accept POS connections |
-| Separate store DB | ⬜ | Store-level aggregation on PRIMARY |
-| Broadcast inventory updates | ⬜ | Near real-time store-wide updates |
+| Discovery protocol | ✅ | UDP broadcast with mDNS fallback support |
+| Leader election | ✅ | Priority + device_id tiebreak with fencing tokens |
+| Heartbeat monitoring | ✅ | Conservative 5s interval, 15s timeout |
+| WebSocket server | ✅ | Axum-based hub accepting POS connections |
+| Inventory aggregator | ✅ | CRDT delta aggregation with configurable broadcast |
+| Broadcast inventory updates | ✅ | Immediate + coalesced 50ms modes (configurable) |
+
+#### Files Created/Updated
+| File | Purpose |
+|------|---------|
+| `crates/titan-sync/src/discovery.rs` | UDP broadcast hub discovery (~400 lines) |
+| `crates/titan-sync/src/election.rs` | Leader election with fencing tokens (~640 lines) |
+| `crates/titan-sync/src/hub.rs` | Axum WebSocket server (~550 lines) |
+| `crates/titan-sync/src/aggregator.rs` | Inventory delta aggregation (~300 lines) |
+| `crates/titan-sync/src/protocol.rs` | Extended with Hub/Election messages |
+| `crates/titan-sync/src/config.rs` | Added HubSettings, DiscoverySettings, BroadcastMode |
+| `crates/titan-sync/Cargo.toml` | Added axum v0.8 with ws feature |
+
+#### Key Architecture Decisions
+- **Discovery**: UDP broadcast on port 5555 with magic bytes "TPOS"
+- **Election**: Priority-based with device_id tiebreak, fencing via `election_term`
+- **Timing**: Conservative (5s heartbeat, 15s timeout before election trigger)
+- **Split-Brain Prevention**: Fencing tokens - lower terms are rejected
+- **Inventory Broadcast**: Configurable - immediate per-delta OR coalesced 50ms window
+- **WebSocket Port**: Configurable via `TITAN_HUB_PORT`, default 8765
+- **Security**: Plain ws:// for LAN (wss:// planned for v0.3 cloud)
 
 ---
 

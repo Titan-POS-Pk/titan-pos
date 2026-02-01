@@ -55,9 +55,7 @@ use titan_db::Database;
 
 use crate::config::SyncConfig;
 use crate::error::{SyncError, SyncResult};
-use crate::protocol::{
-    BatchAckPayload, OutboxBatchPayload, OutboxEntry, SyncMessage, SyncMessageKind,
-};
+use crate::protocol::{BatchAck, OutboxBatch, OutboxEntry, SyncMessage};
 use crate::transport::TransportHandle;
 
 // =============================================================================
@@ -165,8 +163,8 @@ impl OutboxProcessor {
 
                 // Handle acknowledgements
                 Some(msg) = self.ack_rx.recv() => {
-                    if msg.kind == SyncMessageKind::BatchAck {
-                        if let Err(e) = self.handle_batch_ack(msg).await {
+                    if let SyncMessage::BatchAck(ack) = msg {
+                        if let Err(e) = self.handle_batch_ack(ack).await {
                             error!(?e, "Failed to handle batch ack");
                         }
                     }
@@ -225,7 +223,7 @@ impl OutboxProcessor {
         let batch = self.build_batch(&processable)?;
 
         // Send batch
-        let message = SyncMessage::new(SyncMessageKind::OutboxBatch, batch)?;
+        let message = SyncMessage::OutboxBatch(batch);
         self.transport.send(message).await?;
 
         debug!(
@@ -239,8 +237,8 @@ impl OutboxProcessor {
         Ok(())
     }
 
-    /// Builds an OutboxBatchPayload from entries.
-    fn build_batch(&self, entries: &[SyncOutboxEntry]) -> SyncResult<OutboxBatchPayload> {
+    /// Builds an OutboxBatch from entries.
+    fn build_batch(&self, entries: &[SyncOutboxEntry]) -> SyncResult<OutboxBatch> {
         let batch_entries: Vec<OutboxEntry> = entries
             .iter()
             .map(|e| OutboxEntry {
@@ -248,21 +246,19 @@ impl OutboxProcessor {
                 entity_type: e.entity_type.clone(),
                 entity_id: e.entity_id.clone(),
                 payload: e.payload.clone(),
-                created_at: e.created_at,
+                created_at: e.created_at.to_rfc3339(),
             })
             .collect();
 
-        Ok(OutboxBatchPayload {
+        Ok(OutboxBatch {
             device_id: self.config.device.id.clone(),
-            entries: batch_entries,
+            entities: batch_entries,
             batch_seq: self.batch_seq,
         })
     }
 
     /// Handles a batch acknowledgement.
-    async fn handle_batch_ack(&self, message: SyncMessage) -> SyncResult<()> {
-        let ack: BatchAckPayload = message.extract_payload()?;
-
+    async fn handle_batch_ack(&self, ack: BatchAck) -> SyncResult<()> {
         info!(
             acked = ack.acked_ids.len(),
             failed = ack.failed_ids.len(),

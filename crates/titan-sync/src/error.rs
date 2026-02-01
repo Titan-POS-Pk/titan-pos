@@ -162,6 +162,25 @@ pub enum SyncError {
     /// Channel send/receive failed.
     #[error("Channel error: {0}")]
     ChannelError(String),
+
+    // =========================================================================
+    // Transport/Hub Errors (Milestone 2)
+    // =========================================================================
+    /// Generic transport error.
+    #[error("Transport error: {0}")]
+    TransportError(String),
+
+    /// Protocol error.
+    #[error("Protocol error: {0}")]
+    ProtocolError(String),
+
+    /// Discovery failed.
+    #[error("Discovery failed: {0}")]
+    DiscoveryFailed(String),
+
+    /// Election error.
+    #[error("Election error: {0}")]
+    ElectionError(String),
 }
 
 // =============================================================================

@@ -17,10 +17,15 @@
 //! │  SECONDARY ───► OutboxBatch { entries: [...] }                         │
 //! │  PRIMARY   ◄─── BatchAck { acked_ids: [...], failed_ids: [...] }       │
 //! │                                                                         │
-//! │  INBOUND UPDATES (PRIMARY → SECONDARY)                                 │
-//! │  ─────────────────────────────────────                                 │
-//! │  PRIMARY   ───► EntityUpdate { entity_type, entity_id, data, version } │
-//! │  SECONDARY ◄─── UpdateAck { entity_id }                                │
+//! │  INVENTORY SYNC (Milestone 2)                                          │
+//! │  ────────────────────────────                                          │
+//! │  SECONDARY ───► InventoryDelta { product_id, delta_qty }               │
+//! │  PRIMARY   ───► InventoryUpdate { product_id, delta_qty }  (broadcast) │
+//! │                                                                         │
+//! │  HUB DISCOVERY & ELECTION (Milestone 2)                                │
+//! │  ──────────────────────────────────────                                │
+//! │  PRIMARY   ───► Heartbeat { device_id, term }                          │
+//! │  ANY       ───► ElectionStart { candidate_id, priority }               │
 //! │                                                                         │
 //! │  KEEPALIVE                                                             │
 //! │  ─────────                                                             │
@@ -34,128 +39,123 @@
 //! ```
 //!
 //! ## Wire Format (v0.2: JSON)
-//! Messages are serialized as JSON with a `type` discriminator:
+//! Messages are serialized as tagged JSON using serde's adjacently tagged enum:
 //! ```json
-//! {
-//!   "type": "hello",
-//!   "payload": {
-//!     "device_id": "...",
-//!     "protocol_version": 1
-//!   }
-//! }
+//! { "type": "Hello", "payload": { "device_id": "...", ... } }
 //! ```
 //!
 //! Future versions may use Protobuf or MessagePack for efficiency.
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{SyncError, SyncResult};
-
 /// Current protocol version.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 // =============================================================================
-// Message Envelope
+// Main Message Enum (Tagged Union)
 // =============================================================================
 
-/// Sync message envelope with type discriminator.
+/// All sync protocol messages.
 ///
-/// All messages are wrapped in this envelope for serialization.
+/// Uses serde's adjacently tagged enum for clean JSON serialization:
+/// `{ "type": "Hello", "payload": { ... } }`
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncMessage {
-    /// Message type discriminator.
-    #[serde(rename = "type")]
-    pub kind: SyncMessageKind,
+#[serde(tag = "type", content = "payload")]
+pub enum SyncMessage {
+    // =========================================================================
+    // Handshake Messages
+    // =========================================================================
 
-    /// Message payload (type-specific).
-    pub payload: serde_json::Value,
+    /// Initial connection message from SECONDARY to PRIMARY.
+    Hello(HelloPayload),
 
-    /// Optional message ID for request-response correlation.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message_id: Option<String>,
+    /// Response from PRIMARY after successful handshake.
+    Welcome(WelcomePayload),
 
-    /// Timestamp when message was created.
-    #[serde(default = "Utc::now")]
-    pub timestamp: DateTime<Utc>,
-}
+    // =========================================================================
+    // Outbox Sync Messages
+    // =========================================================================
 
-impl SyncMessage {
-    /// Creates a new message with a random ID.
-    pub fn new<T: Serialize>(kind: SyncMessageKind, payload: T) -> SyncResult<Self> {
-        Ok(SyncMessage {
-            kind,
-            payload: serde_json::to_value(payload)?,
-            message_id: Some(uuid::Uuid::new_v4().to_string()),
-            timestamp: Utc::now(),
-        })
-    }
+    /// Batch of outbox entries for upload.
+    OutboxBatch(OutboxBatch),
 
-    /// Creates a new message without an ID.
-    pub fn new_without_id<T: Serialize>(kind: SyncMessageKind, payload: T) -> SyncResult<Self> {
-        Ok(SyncMessage {
-            kind,
-            payload: serde_json::to_value(payload)?,
-            message_id: None,
-            timestamp: Utc::now(),
-        })
-    }
+    /// Acknowledgement for a batch upload.
+    BatchAck(BatchAck),
 
-    /// Serializes to JSON string.
-    pub fn to_json(&self) -> SyncResult<String> {
-        Ok(serde_json::to_string(self)?)
-    }
+    // =========================================================================
+    // Inventory Sync Messages (Milestone 2)
+    // =========================================================================
 
-    /// Deserializes from JSON string.
-    pub fn from_json(json: &str) -> SyncResult<Self> {
-        serde_json::from_str(json).map_err(|e| SyncError::DeserializationFailed(e.to_string()))
-    }
+    /// Inventory delta from SECONDARY (quantity change, not absolute value).
+    InventoryDelta(InventoryDelta),
 
-    /// Extracts the typed payload.
-    pub fn extract_payload<T: for<'de> Deserialize<'de>>(&self) -> SyncResult<T> {
-        serde_json::from_value(self.payload.clone())
-            .map_err(|e| SyncError::DeserializationFailed(e.to_string()))
-    }
+    /// Inventory update broadcast from PRIMARY to all SECONDARY devices.
+    InventoryUpdate(InventoryUpdate),
+
+    // =========================================================================
+    // Hub Discovery & Election Messages (Milestone 2)
+    // =========================================================================
+
+    /// Heartbeat from PRIMARY to announce its presence.
+    Heartbeat(HeartbeatPayload),
+
+    /// Election announcement from a candidate.
+    ElectionStart(ElectionPayload),
+
+    /// Vote in an election.
+    ElectionVote(ElectionVotePayload),
+
+    /// Election result announcement.
+    ElectionResult(ElectionResultPayload),
+
+    // =========================================================================
+    // Entity Update Messages
+    // =========================================================================
+
+    /// Entity update pushed from PRIMARY to SECONDARY.
+    EntityUpdate(EntityUpdate),
+
+    /// Acknowledgement for an entity update.
+    UpdateAck(UpdateAck),
+
+    // =========================================================================
+    // Keepalive Messages
+    // =========================================================================
+
+    /// Ping for keepalive.
+    Ping { timestamp: String },
+
+    /// Pong response for keepalive.
+    Pong {
+        ping_timestamp: String,
+        pong_timestamp: String,
+    },
+
+    // =========================================================================
+    // Error Messages
+    // =========================================================================
+
+    /// Error message.
+    Error { code: String, message: String },
+
+    // =========================================================================
+    // Cursor Messages
+    // =========================================================================
+
+    /// Request current sync cursor position.
+    CursorRequest { device_id: String },
+
+    /// Response with cursor position.
+    CursorResponse { cursor: i64, last_updated: String },
 }
 
 // =============================================================================
-// Message Types
-// =============================================================================
-
-/// Discriminator for message types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SyncMessageKind {
-    // Handshake
-    Hello,
-    Welcome,
-
-    // Outbox upload
-    OutboxBatch,
-    BatchAck,
-
-    // Inbound updates
-    EntityUpdate,
-    UpdateAck,
-
-    // Keepalive
-    Ping,
-    Pong,
-
-    // Error
-    Error,
-
-    // Cursor sync
-    CursorRequest,
-    CursorResponse,
-}
-
-// =============================================================================
-// Handshake Messages
+// Handshake Payloads
 // =============================================================================
 
 /// Hello message sent by SECONDARY on connection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HelloPayload {
     /// Device identifier.
     pub device_id: String,
@@ -169,9 +169,9 @@ pub struct HelloPayload {
     /// Protocol version supported by this device.
     pub protocol_version: u32,
 
-    /// Capabilities this device supports.
+    /// Device priority for election.
     #[serde(default)]
-    pub capabilities: Vec<String>,
+    pub priority: u8,
 }
 
 impl HelloPayload {
@@ -181,36 +181,35 @@ impl HelloPayload {
             device_name: device_name.to_string(),
             store_id: store_id.to_string(),
             protocol_version: PROTOCOL_VERSION,
-            capabilities: vec!["outbox_sync".into(), "entity_updates".into()],
+            priority: 50,
         }
     }
 }
 
 /// Welcome message sent by PRIMARY after successful handshake.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WelcomePayload {
+    /// Hub (PRIMARY) device ID.
+    pub hub_device_id: String,
+
     /// Store ID confirmed by PRIMARY.
     pub store_id: String,
 
-    /// Current sync cursor for this device (where to resume).
-    pub sync_cursor: i64,
+    /// Current election term (fencing token).
+    pub election_term: u64,
 
-    /// Server (PRIMARY) device ID.
-    pub server_device_id: String,
-
-    /// Server device name.
-    pub server_device_name: String,
-
-    /// Protocol version negotiated.
-    pub protocol_version: u32,
+    /// Server time for clock sync reference.
+    pub server_time: String,
 }
 
 // =============================================================================
-// Outbox Messages
+// Outbox Payloads
 // =============================================================================
 
-/// A single outbox entry in a batch.
+/// A single outbox entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OutboxEntry {
     /// Outbox entry ID.
     pub id: String,
@@ -221,41 +220,47 @@ pub struct OutboxEntry {
     /// Entity ID.
     pub entity_id: String,
 
-    /// Full entity payload as JSON.
+    /// Full entity payload as JSON string.
     pub payload: String,
 
     /// When this entry was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: String,
 }
 
 /// Batch of outbox entries for upload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutboxBatchPayload {
+#[serde(rename_all = "camelCase")]
+pub struct OutboxBatch {
     /// Device sending the batch.
     pub device_id: String,
 
     /// Batch entries.
-    pub entries: Vec<OutboxEntry>,
+    pub entities: Vec<OutboxEntry>,
 
     /// Batch sequence number (for ordering/deduplication).
+    #[serde(default)]
     pub batch_seq: u64,
 }
 
 /// Acknowledgement for a batch upload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatchAckPayload {
+#[serde(rename_all = "camelCase")]
+pub struct BatchAck {
     /// IDs that were successfully processed.
     pub acked_ids: Vec<String>,
 
     /// IDs that failed with their error messages.
+    #[serde(default)]
     pub failed_ids: Vec<FailedEntry>,
 
     /// Updated sync cursor.
+    #[serde(default)]
     pub new_cursor: i64,
 }
 
 /// A failed entry in a batch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FailedEntry {
     /// Entry ID that failed.
     pub id: String,
@@ -264,218 +269,268 @@ pub struct FailedEntry {
     pub error: String,
 
     /// Whether this failure is retryable.
+    #[serde(default)]
     pub retryable: bool,
 }
 
 // =============================================================================
-// Entity Update Messages
+// Inventory Sync Payloads (Milestone 2)
+// =============================================================================
+
+/// Inventory delta from a POS device.
+///
+/// Uses CRDT-style delta updates instead of absolute values to handle
+/// concurrent modifications from multiple devices.
+///
+/// ## Example
+/// ```text
+/// POS #1 sells 2 items:  InventoryDelta { delta_quantity: -2 }
+/// POS #2 sells 1 item:   InventoryDelta { delta_quantity: -1 }
+/// 
+/// Hub aggregates: -2 + -1 = -3
+/// Broadcasts:     InventoryUpdate { delta_quantity: -3 }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryDelta {
+    /// Product ID (UUID).
+    pub product_id: String,
+
+    /// SKU snapshot at time of delta.
+    pub sku: String,
+
+    /// Quantity change (negative for sales, positive for restocks).
+    pub delta_quantity: i32,
+
+    /// When this delta occurred (ISO8601).
+    pub timestamp: String,
+}
+
+/// Inventory update broadcast from PRIMARY to all SECONDARY devices.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryUpdate {
+    /// Product ID (UUID).
+    pub product_id: String,
+
+    /// SKU for reference.
+    pub sku: String,
+
+    /// Aggregated quantity change.
+    pub delta_quantity: i32,
+
+    /// Source device ID (or "hub" if aggregated).
+    pub source_device_id: String,
+
+    /// When this update was broadcast (ISO8601).
+    pub timestamp: String,
+}
+
+// =============================================================================
+// Election Payloads (Milestone 2)
+// =============================================================================
+
+/// Heartbeat from PRIMARY to announce its presence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeartbeatPayload {
+    /// Device ID of the PRIMARY.
+    pub device_id: String,
+
+    /// Current election term.
+    pub election_term: u64,
+
+    /// Hub WebSocket URL.
+    pub hub_url: String,
+
+    /// Hub priority (for election comparison).
+    pub priority: u8,
+
+    /// Number of connected devices.
+    #[serde(default)]
+    pub connected_count: usize,
+}
+
+/// Election announcement from a candidate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElectionPayload {
+    /// Candidate device ID.
+    pub candidate_id: String,
+
+    /// Candidate priority.
+    pub priority: u8,
+
+    /// Proposed new term.
+    pub proposed_term: u64,
+}
+
+/// Vote in an election.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElectionVotePayload {
+    /// Voter device ID.
+    pub voter_id: String,
+
+    /// Candidate being voted for.
+    pub candidate_id: String,
+
+    /// Term being voted in.
+    pub term: u64,
+}
+
+/// Election result announcement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElectionResultPayload {
+    /// Winner device ID.
+    pub winner_id: String,
+
+    /// Winning term.
+    pub term: u64,
+
+    /// Hub URL of the winner.
+    pub hub_url: String,
+}
+
+// =============================================================================
+// Entity Update Payloads
 // =============================================================================
 
 /// Entity update pushed from PRIMARY to SECONDARY.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EntityUpdatePayload {
+#[serde(rename_all = "camelCase")]
+pub struct EntityUpdate {
     /// Type of entity being updated.
-    pub entity_type: EntityType,
+    pub entity_type: String,
 
     /// Entity ID.
     pub entity_id: String,
 
-    /// Update operation.
-    pub operation: UpdateOperation,
+    /// Update operation: "upsert", "patch", "delete".
+    pub operation: String,
 
-    /// Entity data (full or partial depending on operation).
+    /// Entity data as JSON.
     pub data: serde_json::Value,
 
     /// Version for conflict detection.
     pub version: i64,
 
-    /// When this update was made.
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Types of entities that can be synced.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EntityType {
-    Product,
-    TaxRate,
-    Category,
-    User,
-    /// Inventory delta (CRDT-style).
-    InventoryDelta,
-}
-
-impl std::fmt::Display for EntityType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EntityType::Product => write!(f, "product"),
-            EntityType::TaxRate => write!(f, "tax_rate"),
-            EntityType::Category => write!(f, "category"),
-            EntityType::User => write!(f, "user"),
-            EntityType::InventoryDelta => write!(f, "inventory_delta"),
-        }
-    }
-}
-
-/// Type of update operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum UpdateOperation {
-    /// Full entity upsert.
-    Upsert,
-    /// Partial field update.
-    Patch,
-    /// Soft delete.
-    Delete,
-    /// Inventory delta adjustment.
-    InventoryAdjust,
+    /// When this update was made (ISO8601).
+    pub updated_at: String,
 }
 
 /// Acknowledgement for an entity update.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateAckPayload {
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAck {
     /// Entity ID that was updated.
     pub entity_id: String,
 
     /// Whether the update was applied successfully.
     pub success: bool,
 
-    /// Applied version (may differ if conflict was resolved).
+    /// Applied version.
+    #[serde(default)]
     pub applied_version: i64,
 
     /// Error message if failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-}
-
-// =============================================================================
-// Keepalive Messages
-// =============================================================================
-
-/// Ping message for keepalive.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PingPayload {
-    /// Timestamp when ping was sent.
-    pub timestamp: DateTime<Utc>,
-}
-
-/// Pong response for keepalive.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PongPayload {
-    /// Original ping timestamp.
-    pub ping_timestamp: DateTime<Utc>,
-
-    /// Timestamp when pong was sent.
-    pub pong_timestamp: DateTime<Utc>,
-}
-
-// =============================================================================
-// Error Messages
-// =============================================================================
-
-/// Error message.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ErrorPayload {
-    /// Error code.
-    pub code: ErrorCode,
-
-    /// Human-readable error message.
-    pub message: String,
-
-    /// Whether the client should retry.
-    pub retryable: bool,
-
-    /// Reference to the message that caused the error (if applicable).
-    pub reference_message_id: Option<String>,
-}
-
-/// Protocol error codes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ErrorCode {
-    /// Protocol version mismatch.
-    UnsupportedVersion,
-
-    /// Invalid message format.
-    InvalidMessage,
-
-    /// Store ID mismatch.
-    StoreMismatch,
-
-    /// Authentication failed.
-    AuthFailed,
-
-    /// Rate limited.
-    RateLimited,
-
-    /// Internal server error.
-    InternalError,
-
-    /// Entity not found.
-    NotFound,
-
-    /// Conflict detected.
-    Conflict,
-}
-
-// =============================================================================
-// Cursor Messages
-// =============================================================================
-
-/// Request current sync cursor position.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CursorRequestPayload {
-    /// Device requesting cursor.
-    pub device_id: String,
-
-    /// Entity type to get cursor for (optional, all if not specified).
-    pub entity_type: Option<EntityType>,
-}
-
-/// Response with cursor position.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CursorResponsePayload {
-    /// Current cursor position.
-    pub cursor: i64,
-
-    /// When cursor was last updated.
-    pub last_updated: DateTime<Utc>,
-
-    /// Entity type this cursor is for (optional).
-    pub entity_type: Option<EntityType>,
 }
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
 
-/// Creates a Hello message.
-pub fn make_hello(device_id: &str, device_name: &str, store_id: &str) -> SyncResult<SyncMessage> {
-    let payload = HelloPayload::new(device_id, device_name, store_id);
-    SyncMessage::new(SyncMessageKind::Hello, payload)
-}
+impl SyncMessage {
+    /// Returns the message type name as a string (for logging).
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            SyncMessage::Hello(_) => "Hello",
+            SyncMessage::Welcome(_) => "Welcome",
+            SyncMessage::OutboxBatch(_) => "OutboxBatch",
+            SyncMessage::BatchAck(_) => "BatchAck",
+            SyncMessage::InventoryDelta(_) => "InventoryDelta",
+            SyncMessage::InventoryUpdate(_) => "InventoryUpdate",
+            SyncMessage::Heartbeat(_) => "Heartbeat",
+            SyncMessage::ElectionStart(_) => "ElectionStart",
+            SyncMessage::ElectionVote(_) => "ElectionVote",
+            SyncMessage::ElectionResult(_) => "ElectionResult",
+            SyncMessage::EntityUpdate(_) => "EntityUpdate",
+            SyncMessage::UpdateAck(_) => "UpdateAck",
+            SyncMessage::Ping { .. } => "Ping",
+            SyncMessage::Pong { .. } => "Pong",
+            SyncMessage::Error { .. } => "Error",
+            SyncMessage::CursorRequest { .. } => "CursorRequest",
+            SyncMessage::CursorResponse { .. } => "CursorResponse",
+        }
+    }
 
-/// Creates a Ping message.
-pub fn make_ping() -> SyncResult<SyncMessage> {
-    let payload = PingPayload {
-        timestamp: Utc::now(),
-    };
-    SyncMessage::new_without_id(SyncMessageKind::Ping, payload)
-}
+    /// Creates a Hello message.
+    pub fn hello(device_id: &str, device_name: &str, store_id: &str, priority: u8) -> Self {
+        SyncMessage::Hello(HelloPayload {
+            device_id: device_id.to_string(),
+            device_name: device_name.to_string(),
+            store_id: store_id.to_string(),
+            protocol_version: PROTOCOL_VERSION,
+            priority,
+        })
+    }
 
-/// Creates an Error message.
-pub fn make_error(
-    code: ErrorCode,
-    message: &str,
-    retryable: bool,
-    reference: Option<String>,
-) -> SyncResult<SyncMessage> {
-    let payload = ErrorPayload {
-        code,
-        message: message.to_string(),
-        retryable,
-        reference_message_id: reference,
-    };
-    SyncMessage::new(SyncMessageKind::Error, payload)
+    /// Creates a Ping message.
+    pub fn ping() -> Self {
+        SyncMessage::Ping {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
+    /// Creates a Pong message.
+    pub fn pong(ping_timestamp: &str) -> Self {
+        SyncMessage::Pong {
+            ping_timestamp: ping_timestamp.to_string(),
+            pong_timestamp: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
+    /// Creates an Error message.
+    pub fn error(code: &str, message: &str) -> Self {
+        SyncMessage::Error {
+            code: code.to_string(),
+            message: message.to_string(),
+        }
+    }
+
+    /// Creates a Heartbeat message.
+    pub fn heartbeat(device_id: &str, term: u64, hub_url: &str, priority: u8, connected_count: usize) -> Self {
+        SyncMessage::Heartbeat(HeartbeatPayload {
+            device_id: device_id.to_string(),
+            election_term: term,
+            hub_url: hub_url.to_string(),
+            priority,
+            connected_count,
+        })
+    }
+
+    /// Creates an InventoryDelta message.
+    pub fn inventory_delta(product_id: &str, sku: &str, delta_quantity: i32) -> Self {
+        SyncMessage::InventoryDelta(InventoryDelta {
+            product_id: product_id.to_string(),
+            sku: sku.to_string(),
+            delta_quantity,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+    }
+
+    /// Serializes to JSON string.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
+    /// Deserializes from JSON string.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
 }
 
 #[cfg(test)]
@@ -484,48 +539,39 @@ mod tests {
 
     #[test]
     fn test_message_serialization() {
-        let hello = make_hello("dev-123", "Register 1", "store-001").unwrap();
+        let hello = SyncMessage::hello("dev-123", "Register 1", "store-001", 50);
         let json = hello.to_json().unwrap();
-        assert!(json.contains("\"type\":\"hello\""));
+        assert!(json.contains("\"type\":\"Hello\""));
         assert!(json.contains("dev-123"));
 
         let parsed = SyncMessage::from_json(&json).unwrap();
-        assert_eq!(parsed.kind, SyncMessageKind::Hello);
+        if let SyncMessage::Hello(payload) = parsed {
+            assert_eq!(payload.device_id, "dev-123");
+        } else {
+            panic!("Expected Hello message");
+        }
     }
 
     #[test]
-    fn test_extract_payload() {
-        let hello = make_hello("dev-123", "Register 1", "store-001").unwrap();
-        let payload: HelloPayload = hello.extract_payload().unwrap();
-        assert_eq!(payload.device_id, "dev-123");
-        assert_eq!(payload.protocol_version, PROTOCOL_VERSION);
+    fn test_inventory_delta() {
+        let delta = SyncMessage::inventory_delta("prod-123", "SKU-001", -5);
+        let json = delta.to_json().unwrap();
+        assert!(json.contains("InventoryDelta"));
+        assert!(json.contains("-5"));
     }
 
     #[test]
-    fn test_ping_pong() {
-        let ping = make_ping().unwrap();
-        assert_eq!(ping.kind, SyncMessageKind::Ping);
-        assert!(ping.message_id.is_none()); // Pings don't need IDs
+    fn test_heartbeat() {
+        let hb = SyncMessage::heartbeat("hub-001", 42, "ws://192.168.1.100:8765", 100, 3);
+        let json = hb.to_json().unwrap();
+        assert!(json.contains("Heartbeat"));
+        assert!(json.contains("42")); // term
     }
 
     #[test]
     fn test_error_message() {
-        let error = make_error(
-            ErrorCode::UnsupportedVersion,
-            "Version 99 not supported",
-            false,
-            None,
-        )
-        .unwrap();
-
-        let payload: ErrorPayload = error.extract_payload().unwrap();
-        assert_eq!(payload.code, ErrorCode::UnsupportedVersion);
-        assert!(!payload.retryable);
-    }
-
-    #[test]
-    fn test_entity_type_display() {
-        assert_eq!(EntityType::Product.to_string(), "product");
-        assert_eq!(EntityType::InventoryDelta.to_string(), "inventory_delta");
+        let error = SyncMessage::error("STORE_MISMATCH", "Store ID does not match");
+        let json = error.to_json().unwrap();
+        assert!(json.contains("STORE_MISMATCH"));
     }
 }

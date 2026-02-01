@@ -339,7 +339,7 @@ impl Transport {
                 // Handle outgoing messages
                 Some(msg) = self.outgoing_rx.recv() => {
                     let json = msg.to_json()?;
-                    debug!(kind = ?msg.kind, "Sending message");
+                    debug!(msg_type = %msg.type_name(), "Sending message");
                     let mut writer = write.lock().await;
                     writer.send(WsMessage::Text(json.into())).await?;
                 }
@@ -350,7 +350,7 @@ impl Transport {
                         Ok(WsMessage::Text(text)) => {
                             match SyncMessage::from_json(&text) {
                                 Ok(msg) => {
-                                    debug!(kind = ?msg.kind, "Received message");
+                                    debug!(msg_type = %msg.type_name(), "Received message");
                                     if self.incoming_tx.send(msg).await.is_err() {
                                         warn!("Incoming message receiver dropped");
                                         return Err(SyncError::ChannelError("Receiver dropped".into()));

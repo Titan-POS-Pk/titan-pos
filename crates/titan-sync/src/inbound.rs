@@ -58,10 +58,7 @@ use titan_db::Database;
 
 use crate::config::SyncConfig;
 use crate::error::{SyncError, SyncResult};
-use crate::protocol::{
-    EntityType, EntityUpdatePayload, SyncMessage, SyncMessageKind, UpdateAckPayload,
-    UpdateOperation,
-};
+use crate::protocol::{EntityUpdate, SyncMessage, UpdateAck};
 use crate::transport::TransportHandle;
 
 // =============================================================================
@@ -147,8 +144,8 @@ impl InboundHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.update_rx.recv() => {
-                    if msg.kind == SyncMessageKind::EntityUpdate {
-                        if let Err(e) = self.process_update(msg).await {
+                    if let SyncMessage::EntityUpdate(update) = msg {
+                        if let Err(e) = self.process_update(update).await {
                             error!(?e, "Failed to process entity update");
                         }
                     }
@@ -165,49 +162,50 @@ impl InboundHandler {
     }
 
     /// Processes an entity update message.
-    async fn process_update(&self, message: SyncMessage) -> SyncResult<()> {
-        let update: EntityUpdatePayload = message.extract_payload()?;
-
+    async fn process_update(&self, update: EntityUpdate) -> SyncResult<()> {
         debug!(
             entity_type = %update.entity_type,
             entity_id = %update.entity_id,
-            operation = ?update.operation,
+            operation = %update.operation,
             version = update.version,
             "Processing entity update"
         );
 
-        let result = match update.entity_type {
-            EntityType::Product => self.apply_product_update(&update).await,
-            EntityType::InventoryDelta => self.apply_inventory_delta(&update).await,
-            EntityType::TaxRate => self.apply_tax_rate_update(&update).await,
-            EntityType::Category => self.apply_category_update(&update).await,
-            EntityType::User => self.apply_user_update(&update).await,
+        let result = match update.entity_type.as_str() {
+            "product" => self.apply_product_update(&update).await,
+            "inventory_delta" => self.apply_inventory_delta(&update).await,
+            "tax_rate" => self.apply_tax_rate_update(&update).await,
+            "category" => self.apply_category_update(&update).await,
+            "user" => self.apply_user_update(&update).await,
+            _ => {
+                warn!(entity_type = %update.entity_type, "Unknown entity type");
+                Ok(0)
+            }
         };
 
         // Send acknowledgement
         let ack = match &result {
-            Ok(applied_version) => UpdateAckPayload {
+            Ok(applied_version) => SyncMessage::UpdateAck(UpdateAck {
                 entity_id: update.entity_id.clone(),
                 success: true,
                 applied_version: *applied_version,
                 error: None,
-            },
-            Err(e) => UpdateAckPayload {
+            }),
+            Err(e) => SyncMessage::UpdateAck(UpdateAck {
                 entity_id: update.entity_id.clone(),
                 success: false,
                 applied_version: 0,
                 error: Some(e.to_string()),
-            },
+            }),
         };
 
-        let ack_message = SyncMessage::new(SyncMessageKind::UpdateAck, ack)?;
-        self.transport.send(ack_message).await?;
+        self.transport.send(ack).await?;
 
         result.map(|_| ())
     }
 
     /// Applies a product update.
-    async fn apply_product_update(&self, update: &EntityUpdatePayload) -> SyncResult<i64> {
+    async fn apply_product_update(&self, update: &EntityUpdate) -> SyncResult<i64> {
         // Check version to avoid applying stale updates
         let current = self
             .db
@@ -227,8 +225,8 @@ impl InboundHandler {
             }
         }
 
-        match update.operation {
-            UpdateOperation::Upsert => {
+        match update.operation.as_str() {
+            "upsert" => {
                 // Parse full product from data
                 let mut product: titan_core::Product =
                     serde_json::from_value(update.data.clone())?;
@@ -254,7 +252,7 @@ impl InboundHandler {
 
                 Ok(update.version)
             }
-            UpdateOperation::Patch => {
+            "patch" => {
                 // Partial update - only update specified fields
                 // This requires a dedicated method that handles partial JSON
                 warn!(
@@ -263,7 +261,7 @@ impl InboundHandler {
                 );
                 Ok(current.map(|p| p.sync_version).unwrap_or(0))
             }
-            UpdateOperation::Delete => {
+            "delete" => {
                 // Soft delete
                 self.soft_delete_product(&update.entity_id, update.version)
                     .await?;
@@ -276,11 +274,9 @@ impl InboundHandler {
 
                 Ok(update.version)
             }
-            UpdateOperation::InventoryAdjust => {
-                // This shouldn't happen for Product type
-                Err(SyncError::InvalidMessage(
-                    "InventoryAdjust not valid for Product entity".into(),
-                ))
+            _ => {
+                warn!(operation = %update.operation, "Unknown operation for Product");
+                Ok(current.map(|p| p.sync_version).unwrap_or(0))
             }
         }
     }
@@ -290,7 +286,7 @@ impl InboundHandler {
     /// ## CRDT Behavior
     /// Inventory deltas are always applied, regardless of version.
     /// The delta value is added to current_stock atomically.
-    async fn apply_inventory_delta(&self, update: &EntityUpdatePayload) -> SyncResult<i64> {
+    async fn apply_inventory_delta(&self, update: &EntityUpdate) -> SyncResult<i64> {
         // Extract delta from data
         #[derive(serde::Deserialize)]
         struct InventoryDeltaData {
@@ -338,7 +334,7 @@ impl InboundHandler {
     }
 
     /// Applies a tax rate update.
-    async fn apply_tax_rate_update(&self, update: &EntityUpdatePayload) -> SyncResult<i64> {
+    async fn apply_tax_rate_update(&self, update: &EntityUpdate) -> SyncResult<i64> {
         // Tax rate updates would go here
         // For now, just log and acknowledge
         warn!(
@@ -349,7 +345,7 @@ impl InboundHandler {
     }
 
     /// Applies a category update.
-    async fn apply_category_update(&self, update: &EntityUpdatePayload) -> SyncResult<i64> {
+    async fn apply_category_update(&self, update: &EntityUpdate) -> SyncResult<i64> {
         // Category updates would go here
         warn!(
             entity_id = %update.entity_id,
@@ -359,7 +355,7 @@ impl InboundHandler {
     }
 
     /// Applies a user update.
-    async fn apply_user_update(&self, update: &EntityUpdatePayload) -> SyncResult<i64> {
+    async fn apply_user_update(&self, update: &EntityUpdate) -> SyncResult<i64> {
         // User updates would go here
         warn!(
             entity_id = %update.entity_id,
