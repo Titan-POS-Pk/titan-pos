@@ -44,6 +44,8 @@ import { formatMoney, debounce } from '../utils';
 interface ProductSearchProps {
   /** Called when user clicks a product to add to cart */
   onAddToCart: (productId: string, quantity?: number) => void;
+  /** Trigger to force refresh of product list (increment to refresh) */
+  refreshTrigger?: number;
 }
 
 /**
@@ -168,6 +170,27 @@ const ProductSearch: Component<ProductSearchProps> = (props) => {
   // Load initial products on mount
   onMount(() => {
     executeSearch('');
+  });
+
+  // Refresh products when refreshTrigger changes
+  const prevRefreshTrigger = createSignal(props.refreshTrigger ?? 0);
+  
+  // Watch for refreshTrigger changes and re-run search
+  const checkRefreshTrigger = () => {
+    const current = props.refreshTrigger ?? 0;
+    const [prev, setPrev] = prevRefreshTrigger;
+    if (current !== prev()) {
+      setPrev(current);
+      // Re-run the current search query
+      executeSearch(searchQuery());
+    }
+  };
+  
+  // Set up an interval to check for trigger changes
+  const refreshInterval = setInterval(checkRefreshTrigger, 100);
+  
+  onCleanup(() => {
+    clearInterval(refreshInterval);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

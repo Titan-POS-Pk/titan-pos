@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "solid-js": "^1.8.0"
+    "@xstate/solid": "^2.0.0",
+    "solid-js": "^1.8.0",
+    "xstate": "^5.26.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

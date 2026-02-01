@@ -137,6 +137,41 @@ pub async fn add_to_cart(
         return Err(ApiError::validation("Product is not available for sale"));
     }
 
+    // Stock validation respecting trackInventory and allowNegativeStock flags
+    // ┌─────────────────────────────────────────────────────────────────────────┐
+    // │  Stock Behavior Matrix                                                  │
+    // │                                                                         │
+    // │  track_inventory │ allow_negative │ stock <= 0  │ Result               │
+    // │  ────────────────┼────────────────┼─────────────┼───────────────────── │
+    // │  false           │ (ignored)      │ (ignored)   │ Always allow         │
+    // │  true            │ false          │ yes         │ BLOCK - out of stock │
+    // │  true            │ true           │ yes         │ Allow (back-order)   │
+    // │  true            │ any            │ no          │ Allow                │
+    // └─────────────────────────────────────────────────────────────────────────┘
+    if product.track_inventory {
+        let current_stock = product.current_stock.unwrap_or(0);
+        
+        // Get current quantity in cart for this product
+        let existing_qty = cart.with_cart(|c| {
+            c.items
+                .iter()
+                .find(|i| i.product_id == product_id)
+                .map(|i| i.quantity)
+                .unwrap_or(0)
+        });
+        
+        let total_requested = existing_qty + quantity;
+        
+        // Check if we have enough stock (or if back-orders are allowed)
+        if current_stock < total_requested && !product.allow_negative_stock {
+            return Err(ApiError::insufficient_stock(
+                &product.sku,
+                current_stock,
+                total_requested,
+            ));
+        }
+    }
+
     // Add to cart (thread-safe via Mutex)
     let result = cart.with_cart_mut(|c| {
         c.add_item(&product, quantity)?;

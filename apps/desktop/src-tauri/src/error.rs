@@ -144,6 +144,22 @@ impl ApiError {
     pub fn cart(message: impl Into<String>) -> Self {
         ApiError::new(ErrorCode::CartError, message)
     }
+
+    /// Creates an insufficient stock error.
+    ///
+    /// ## Parameters
+    /// * `sku` - Product SKU for identification
+    /// * `available` - Current stock level
+    /// * `requested` - Total quantity requested (existing + new)
+    pub fn insufficient_stock(sku: &str, available: i64, requested: i64) -> Self {
+        ApiError::new(
+            ErrorCode::InsufficientStock,
+            format!(
+                "Insufficient stock for {}: {} available, {} requested",
+                sku, available, requested
+            ),
+        )
+    }
 }
 
 /// Converts database errors to API errors.

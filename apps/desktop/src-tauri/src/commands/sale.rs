@@ -167,29 +167,52 @@ pub async fn add_payment(
         ));
     }
 
+    // Calculate current total paid BEFORE this payment
+    let prev_total_paid = db_inner.sales().get_total_paid(&sale_id).await?;
+    let remaining_before = (sale.total_cents - prev_total_paid).max(0);
+
+    // Calculate effective amount applied to the sale and change
+    // ┌─────────────────────────────────────────────────────────────────────────┐
+    // │  Change Calculation (for cash payments)                                 │
+    // │                                                                         │
+    // │  tendered_cents = what customer gave us (e.g., $30.00 = 3000)          │
+    // │  amount_cents   = what applies to the sale (min of tendered, remaining)│
+    // │  change_cents   = what we give back (tendered - amount)                │
+    // │                                                                         │
+    // │  Example: $25.00 due, customer gives $30.00                            │
+    // │    tendered_cents = 3000                                                │
+    // │    amount_cents   = 2500 (applies to sale)                             │
+    // │    change_cents   = 500  (returned to customer)                        │
+    // └─────────────────────────────────────────────────────────────────────────┘
+    let effective_amount = amount_cents.min(remaining_before);
+    let change = if amount_cents > remaining_before {
+        amount_cents - remaining_before
+    } else {
+        0
+    };
+
     let payment_id = Uuid::new_v4().to_string();
     let payment = Payment {
         id: payment_id.clone(),
         sale_id: sale_id.clone(),
         method: payment_method,
-        amount_cents,
-        tendered_cents: Some(amount_cents),
-        change_cents: None,
+        amount_cents: effective_amount,  // What applies to the sale
+        tendered_cents: Some(amount_cents),  // What was actually given
+        change_cents: if change > 0 { Some(change) } else { None },  // What to return
         reference: None,
         created_at: Utc::now(),
     };
 
     db_inner.sales().add_payment(&payment).await?;
 
-    let total_paid = db_inner.sales().get_total_paid(&sale_id).await?;
+    let total_paid = prev_total_paid + effective_amount;
     let remaining = (sale.total_cents - total_paid).max(0);
-    let change = (total_paid - sale.total_cents).max(0);
 
-    info!(sale_id = %sale_id, payment_id = %payment_id, amount = %amount_cents, total_paid = %total_paid, remaining = %remaining, "Payment added");
+    info!(sale_id = %sale_id, payment_id = %payment_id, tendered = %amount_cents, applied = %effective_amount, change = %change, total_paid = %total_paid, remaining = %remaining, "Payment added");
 
     Ok(AddPaymentResponse {
         payment_id,
-        amount_cents,
+        amount_cents: effective_amount,
         total_paid_cents: total_paid,
         remaining_cents: remaining,
         change_cents: change,
@@ -207,6 +230,35 @@ pub async fn finalize_sale(
 
     let db_inner: &Database = (*db).inner();
 
+    // Get sale items BEFORE finalizing so we can decrement stock
+    let items = db_inner.sales().get_items(&sale_id).await?;
+
+    // Decrement stock for each item sold
+    // ┌─────────────────────────────────────────────────────────────────────────┐
+    // │  Stock Deduction on Sale Finalization                                   │
+    // │                                                                         │
+    // │  For each item in the sale:                                             │
+    // │    1. Get product details to check track_inventory flag                │
+    // │    2. If tracking inventory, decrement by quantity sold                 │
+    // │    3. Use delta update (CRDT-friendly for sync)                         │
+    // │                                                                         │
+    // │  Example: Sell 3 bottles of Coke                                        │
+    // │    product.current_stock: 50 → 47                                       │
+    // │    SQL: UPDATE products SET current_stock = current_stock - 3           │
+    // └─────────────────────────────────────────────────────────────────────────┘
+    for item in &items {
+        // Get product to check if it tracks inventory
+        if let Some(product) = db_inner.products().get_by_id(&item.product_id).await? {
+            if product.track_inventory {
+                // Decrement stock by quantity sold (negative delta)
+                let delta = -(item.quantity as i32);
+                db_inner.products().update_stock(&item.product_id, delta).await?;
+                debug!(product_id = %item.product_id, sku = %item.sku_snapshot, quantity = item.quantity, "Stock decremented");
+            }
+        }
+    }
+
+    // Now finalize the sale (marks as complete, updates timestamp)
     db_inner.sales().finalize_sale(&sale_id).await?;
 
     let sale = db_inner
@@ -221,12 +273,11 @@ pub async fn finalize_sale(
         .queue_for_sync("SALE", &sale_id, &payload)
         .await?;
 
-    let items = db_inner.sales().get_items(&sale_id).await?;
     let payments = db_inner.sales().get_payments(&sale_id).await?;
 
     cart.with_cart_mut(|c| c.clear());
 
-    info!(sale_id = %sale_id, "Sale finalized");
+    info!(sale_id = %sale_id, items_count = items.len(), "Sale finalized and stock updated");
 
     let total_change: i64 = payments.iter().filter_map(|p| p.change_cents).sum();
 

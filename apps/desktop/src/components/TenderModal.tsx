@@ -87,23 +87,46 @@ const TenderModal: Component<TenderModalProps> = (props) => {
   const symbol = () => props.config?.currencySymbol ?? '$';
 
   /**
-   * Parse entered amount to cents.
-   * Handle both integer (3000) and decimal (30.00) entries.
+   * Auto-detect entry mode based on input.
+   * 
+   * ## Detection Logic
+   * ```
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │  Auto-Detect Numpad Entry Mode                                         │
+   * │                                                                         │
+   * │  Input         │ Detection          │ Cents Value │ Display            │
+   * │  ──────────────┼────────────────────┼─────────────┼─────────────────── │
+   * │  "3000"        │ No decimal → cents │ 3000        │ $30.00             │
+   * │  "30.00"       │ Has decimal → $    │ 3000        │ $30.00             │
+   * │  "30"          │ No decimal → cents │ 30          │ $0.30              │
+   * │  "30."         │ Has decimal → $    │ 3000        │ $30.00             │
+   * │  "30.5"        │ Has decimal → $    │ 3050        │ $30.50             │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   * ```
    */
   const enteredCents = (): number => {
     const str = amountStr();
     if (!str) return 0;
 
-    // If contains decimal, parse as dollars
+    // If contains decimal, treat as dollars (user typed 30.00 for $30.00)
     if (str.includes('.')) {
       const [whole, frac = ''] = str.split('.');
       const wholeNum = parseInt(whole || '0', 10);
-      const fracNum = parseInt(frac.padEnd(2, '0').slice(0, 2), 10);
+      // Pad or truncate fraction to exactly 2 digits
+      const fracPadded = frac.padEnd(2, '0').slice(0, 2);
+      const fracNum = parseInt(fracPadded, 10);
       return wholeNum * 100 + fracNum;
     }
 
-    // Otherwise, treat as cents
-    return parseInt(str, 10);
+    // No decimal = cents (user typed 3000 for $30.00)
+    return parseInt(str, 10) || 0;
+  };
+
+  /**
+   * Returns the detected entry mode for UI hint.
+   */
+  const entryMode = (): 'cents' | 'dollars' => {
+    return amountStr().includes('.') ? 'dollars' : 'cents';
   };
 
   /**
@@ -241,12 +264,24 @@ const TenderModal: Component<TenderModalProps> = (props) => {
 
         {/* Amount Entry */}
         <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 mb-2">
-            Amount Tendered
-          </label>
+          <div class="flex justify-between items-center mb-2">
+            <label class="block text-sm font-medium text-gray-700">
+              Amount Tendered
+            </label>
+            <span class="text-xs text-gray-400">
+              {entryMode() === 'cents' 
+                ? 'Type cents (3000 = $30.00)' 
+                : 'Type dollars (30.00 = $30.00)'}
+            </span>
+          </div>
           <div class="input input-lg text-right font-mono text-2xl bg-white">
             {amountStr() ? formatMoney(enteredCents(), symbol()) : symbol() + '0.00'}
           </div>
+          <Show when={amountStr() && !amountStr().includes('.')}>
+            <p class="text-xs text-gray-400 mt-1 text-right">
+              Tip: Add "." for dollar entry
+            </p>
+          </Show>
         </div>
 
         {/* Quick Amount Buttons */}
