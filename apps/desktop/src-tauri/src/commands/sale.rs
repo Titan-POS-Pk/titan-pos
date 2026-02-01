@@ -69,7 +69,12 @@ pub async fn create_sale(
     debug!("create_sale command");
 
     let (items, subtotal, tax, total) = cart.with_cart(|c| {
-        (c.items.clone(), c.subtotal_cents(), c.tax_cents(), c.total_cents())
+        (
+            c.items.clone(),
+            c.subtotal_cents(),
+            c.tax_cents(),
+            c.total_cents(),
+        )
     });
 
     if items.is_empty() {
@@ -149,10 +154,17 @@ pub async fn add_payment(
 
     let db_inner: &Database = (*db).inner();
 
-    let sale = db_inner.sales().get_by_id(&sale_id).await?.ok_or_else(|| ApiError::not_found("Sale", &sale_id))?;
+    let sale = db_inner
+        .sales()
+        .get_by_id(&sale_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Sale", &sale_id))?;
 
     if sale.status != SaleStatus::Draft {
-        return Err(ApiError::new(ErrorCode::BusinessLogic, format!("Sale is {:?}, cannot add payment", sale.status)));
+        return Err(ApiError::new(
+            ErrorCode::BusinessLogic,
+            format!("Sale is {:?}, cannot add payment", sale.status),
+        ));
     }
 
     let payment_id = Uuid::new_v4().to_string();
@@ -197,10 +209,17 @@ pub async fn finalize_sale(
 
     db_inner.sales().finalize_sale(&sale_id).await?;
 
-    let sale = db_inner.sales().get_by_id(&sale_id).await?.ok_or_else(|| ApiError::not_found("Sale", &sale_id))?;
+    let sale = db_inner
+        .sales()
+        .get_by_id(&sale_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Sale", &sale_id))?;
 
     let payload = serde_json::to_string(&sale).unwrap_or_default();
-    db_inner.sync_outbox().queue_for_sync("SALE", &sale_id, &payload).await?;
+    db_inner
+        .sync_outbox()
+        .queue_for_sync("SALE", &sale_id, &payload)
+        .await?;
 
     let items = db_inner.sales().get_items(&sale_id).await?;
     let payments = db_inner.sales().get_payments(&sale_id).await?;
@@ -216,19 +235,25 @@ pub async fn finalize_sale(
         receipt_number: sale.receipt_number,
         store_name: config.store_name.clone(),
         timestamp: sale.completed_at.unwrap_or(sale.created_at).to_rfc3339(),
-        items: items.into_iter().map(|i| ReceiptItem {
-            name: i.name_snapshot,
-            quantity: i.quantity,
-            unit_price_cents: i.unit_price_cents,
-            line_total_cents: i.line_total_cents,
-        }).collect(),
+        items: items
+            .into_iter()
+            .map(|i| ReceiptItem {
+                name: i.name_snapshot,
+                quantity: i.quantity,
+                unit_price_cents: i.unit_price_cents,
+                line_total_cents: i.line_total_cents,
+            })
+            .collect(),
         subtotal_cents: sale.subtotal_cents,
         tax_cents: sale.tax_cents,
         total_cents: sale.total_cents,
-        payments: payments.into_iter().map(|p| ReceiptPayment {
-            method: format!("{:?}", p.method),
-            amount_cents: p.amount_cents,
-        }).collect(),
+        payments: payments
+            .into_iter()
+            .map(|p| ReceiptPayment {
+                method: format!("{:?}", p.method),
+                amount_cents: p.amount_cents,
+            })
+            .collect(),
         change_cents: total_change,
     };
 
@@ -237,7 +262,10 @@ pub async fn finalize_sale(
 
 fn generate_receipt_number() -> String {
     let now = Utc::now();
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .subsec_nanos();
     let random: u16 = (nanos % 10000) as u16;
     format!("{}-{:04}", now.format("%y%m%d-%H%M%S"), random)
 }

@@ -19,6 +19,16 @@
 
 /**
  * Product data from the backend.
+ * 
+ * ## Stock Behavior
+ * The combination of `trackInventory` and `allowNegativeStock` determines
+ * how out-of-stock products are handled:
+ * 
+ * | trackInventory | allowNegativeStock | Behavior |
+ * |----------------|-------------------|----------|
+ * | false          | (ignored)         | Always sellable |
+ * | true           | false             | Cannot sell when stock <= 0 |
+ * | true           | true              | Can sell (back-order), shows warning |
  */
 export interface ProductDto {
   /** UUID */
@@ -37,6 +47,8 @@ export interface ProductDto {
   taxRateBps: number;
   /** Whether inventory is tracked */
   trackInventory: boolean;
+  /** Whether selling is allowed when stock is 0 or negative (back-order) */
+  allowNegativeStock: boolean;
   /** Current stock level (if tracked) */
   currentStock: number | null;
   /** Whether product is available for sale */

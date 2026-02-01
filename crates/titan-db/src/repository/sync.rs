@@ -141,7 +141,7 @@ impl SyncOutboxRepository {
     /// ## Returns
     /// Entries where `synced_at IS NULL`, ordered by created_at (oldest first).
     pub async fn get_pending(&self, limit: u32) -> DbResult<Vec<SyncOutboxEntry>> {
-        let entries = sqlx::query_as!(
+        let entries: Vec<SyncOutboxEntry> = sqlx::query_as!(
             SyncOutboxEntry,
             r#"
             SELECT 
@@ -235,7 +235,7 @@ impl SyncOutboxRepository {
     /// ## Returns
     /// Number of deleted entries.
     pub async fn cleanup_old_entries(&self, days_old: u32) -> DbResult<u64> {
-        let result = sqlx::query!(
+        let result: sqlx::sqlite::SqliteQueryResult = sqlx::query!(
             r#"
             DELETE FROM sync_outbox
             WHERE synced_at IS NOT NULL

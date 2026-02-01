@@ -880,6 +880,272 @@ pub async fn my_command(
 
 ---
 
+### 7. SQLx Compile-Time Query Verification Requires Live Database
+
+**The Problem:**
+```rust
+// ❌ Code compiles with `cargo sqlx prepare` cache, but fails with live DB
+sqlx::query_as!(
+    Product,
+    "SELECT cost_cents, current_stock FROM products WHERE id = ?",
+    id
+)
+// ERROR at runtime: columns are nullable but code expects non-nullable
+```
+
+**Why It Happens:**
+- SQLx verifies queries at compile time against the actual database schema
+- If `DATABASE_URL` isn't set, it uses cached `.sqlx/` metadata
+- Cache can become stale when schema changes
+- Nullable columns require `Option<T>` in Rust, but SQLx infers this from the live DB
+- Running without proper DB connection masks schema-code mismatches
+
+**The Solution:**
+```bash
+# ✅ CORRECT: Always compile with live database connection
+export DATABASE_URL="sqlite:data/titan.db"
+cargo build  # Now SQLx validates against actual schema
+
+# Regenerate cache after schema changes
+cargo sqlx prepare
+```
+
+**Prevention:**
+- Always set `DATABASE_URL` environment variable before `cargo build`
+- Add to shell profile: `export DATABASE_URL="sqlite:data/titan.db"`
+- After any migration, run `cargo sqlx prepare` to update cache
+- Never trust cached `.sqlx/` directory blindly after schema changes
+- For nullable columns, explicitly annotate: `column as "column: Option<i64>"`
+
+---
+
+### 8. Development Database Path Resolution in Tauri
+
+**The Problem:**
+```rust
+// ❌ WRONG: Relative paths don't work because Tauri runs from target/debug
+let dev_db = PathBuf::from("../../data/titan.db");
+if dev_db.exists() {  // Always false! Working dir is wrong
+    // ...
+}
+```
+
+**Why It Happens:**
+- Tauri compiles the Rust binary to `target/debug/app-name`
+- When running `pnpm tauri dev`, the binary executes from `target/debug/`
+- Relative paths like `../../data/` resolve from wrong directory
+- `std::env::current_dir()` returns unexpected location
+- Different behavior between `cargo run` vs `pnpm tauri dev`
+
+**The Solution:**
+```rust
+// ✅ CORRECT: Use CARGO_MANIFEST_DIR at compile time
+#[cfg(debug_assertions)]
+{
+    // CARGO_MANIFEST_DIR is set at compile time to src-tauri directory
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let dev_db = PathBuf::from(format!("{}/../../../data/titan.db", manifest_dir));
+    if dev_db.exists() {
+        return Ok(dev_db.canonicalize()?);
+    }
+}
+```
+
+**Prevention:**
+- Never rely on runtime working directory for file paths
+- Use `env!("CARGO_MANIFEST_DIR")` for compile-time path anchoring
+- Consider using Tauri's `app.path()` API for runtime path resolution
+- Log resolved paths during development: `info!(?path, "Using database")`
+- Test both `cargo run` and `pnpm tauri dev` to catch path issues
+
+---
+
+### 9. Frontend-Backend Type Contract Drift
+
+**The Problem:**
+```typescript
+// Frontend expects camelCase
+interface ProductDto {
+  priceCents: number;
+  currentStock: number | null;
+}
+
+// Backend sends snake_case (forgot #[serde(rename_all = "camelCase")])
+struct ProductDto {
+    price_cents: i64,
+    current_stock: Option<i64>,
+}
+// Result: Frontend gets undefined for all fields!
+```
+
+**Why It Happens:**
+- No compile-time checking between TypeScript and Rust types
+- Serde's `rename_all` attribute can be forgotten
+- Field additions/removals in one layer don't error in the other
+- Silent failures: data is `undefined` instead of error
+- Manual type synchronization is error-prone
+
+**The Solution:**
+```rust
+// ✅ CORRECT: Always use camelCase for JS consumption
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]  // CRITICAL: Don't forget!
+pub struct ProductDto {
+    pub price_cents: i64,
+    pub current_stock: Option<i64>,
+}
+```
+
+**Prevention:**
+- Add `#[serde(rename_all = "camelCase")]` to ALL DTOs exposed to frontend
+- Use `ts-rs` crate to auto-generate TypeScript types from Rust
+- After modifying Rust DTOs, regenerate TS types and verify
+- Add integration tests that verify JSON shape matches TS interface
+- Console.log API responses during development to verify field names
+
+---
+
+### 10. SolidJS Reactivity vs Event Handler Pitfalls
+
+**The Problem:**
+```tsx
+// ❌ WRONG: Handler captures stale closure value
+const ProductCard = (props) => {
+  const handleClick = () => {
+    console.log(props.product.id);  // May be stale!
+    props.onClick(props.product.id);  // Passes old value
+  };
+  
+  return <button onClick={handleClick}>Add</button>;
+};
+```
+
+**Why It Happens:**
+- SolidJS components don't re-run like React components
+- Event handlers capture values at creation time
+- Props are proxies that need accessor syntax `props.field`
+- Closures inside component body don't automatically update
+- Works in simple cases, fails with dynamic data
+
+**The Solution:**
+```tsx
+// ✅ CORRECT: Access props directly in handler, or use arrow function
+const ProductCard = (props) => {
+  return (
+    <button onClick={() => props.onClick(props.product.id)}>
+      Add
+    </button>
+  );
+};
+
+// OR: Access current prop value explicitly
+const ProductCard = (props) => {
+  const handleClick = () => {
+    const currentProduct = props.product;  // Get current value
+    props.onClick(currentProduct.id);
+  };
+  
+  return <button onClick={handleClick}>Add</button>;
+};
+```
+
+**Prevention:**
+- Prefer inline arrow functions for event handlers in SolidJS
+- Never destructure props at component top level: `const { product } = props` ❌
+- Access props through the proxy: `props.product` ✅
+- Use `createMemo` for derived values that need to stay reactive
+- Test event handlers with rapidly changing data
+
+---
+
+### 11. Tauri Development Memory Usage
+
+**The Problem:**
+```
+Activity Monitor shows:
+- titan-desktop: 8-12 GB memory usage
+- System becomes sluggish
+- Fans spinning constantly
+```
+
+**Why It Happens:**
+- Debug builds include full debug symbols (10x larger binaries)
+- Vite dev server keeps all modules in memory for HMR
+- WebView (WebKit) has aggressive caching in dev mode
+- Source maps for both Rust and TypeScript consume memory
+- Multiple Tauri processes: main app + devtools + file watchers
+- SQLite WAL files can grow large during development
+
+**The Solution:**
+```bash
+# 1. Reduce Rust debug info (Cargo.toml)
+[profile.dev]
+debug = 1  # Reduced from 2 (full) to 1 (line tables only)
+
+# 2. Periodically restart dev server
+# After many HMR cycles, restart to clear memory
+
+# 3. Use release mode for testing when memory is critical
+cargo tauri dev --release  # Slower compile, less memory
+
+# 4. Close devtools when not debugging
+# WebKit devtools hold significant memory
+
+# 5. Compact SQLite periodically
+sqlite3 data/titan.db "VACUUM; PRAGMA wal_checkpoint(TRUNCATE);"
+```
+
+**Prevention:**
+- Accept 2-4 GB as normal for Tauri development
+- Restart dev server every 1-2 hours during active development
+- Close browser DevTools when not actively debugging
+- Monitor with Activity Monitor and restart if >6 GB
+- Use `--release` flag for user acceptance testing
+- Consider testing on production builds for memory-sensitive features
+
+---
+
+### 12. Seed Data Assumptions Breaking UI Logic
+
+**The Problem:**
+```rust
+// Seed generates products with stock = seed % 101
+// This means ~1% of products have stock = 0
+let current_stock = Some((seed % 101) as i64);  // 0, 1, 2, ... 100, 0, 1, ...
+
+// UI code disables products when stock <= 0
+const isDisabled = () => {
+  if (!product.trackInventory) return false;
+  return (product.currentStock ?? 0) <= 0;  // First product is disabled!
+};
+```
+
+**Why It Happens:**
+- Seed data is generated with mathematical patterns for predictability
+- Edge cases (stock = 0, null values) appear at predictable intervals
+- UI logic correctly handles edge cases, but devs see "broken" UI
+- First items in list often hit edge cases due to low seed values
+- No documentation of seed patterns for developers
+
+**The Solution:**
+```rust
+// ✅ CORRECT: Ensure first N products are always usable for demos
+let current_stock = if index < 20 {
+    Some(50 + (seed % 50) as i64)  // First 20 products: 50-100 stock
+} else {
+    Some((seed % 101) as i64)  // Rest: 0-100 (includes edge cases)
+};
+```
+
+**Prevention:**
+- Document seed data patterns in seed.rs comments
+- Ensure demo-friendly data appears first in sort order
+- Test UI with sorted data (matches user experience)
+- Include README notes about expected disabled items
+- Add filter to hide out-of-stock items by default in dev
+
+---
+
 ## Validation Checklist Before Implementation
 
 Before writing code for any command or complex function:
@@ -892,6 +1158,10 @@ Before writing code for any command or complex function:
 - [ ] **Migrations**: Ran migrations and verified database state with `cargo check`
 - [ ] **Error Handling**: All repository calls use `?` and return `Result`
 - [ ] **Tests**: Quick local test of command with `pnpm tauri dev` before committing
+- [ ] **DATABASE_URL**: Set environment variable before building (`export DATABASE_URL="sqlite:data/titan.db"`)
+- [ ] **Serde Attributes**: All DTOs have `#[serde(rename_all = "camelCase")]` for frontend consumption
+- [ ] **SolidJS Props**: Never destructure props; always access via `props.field`
+- [ ] **Seed Data Sanity**: First 20 items in seed have reasonable/testable values
 
 ---
 
@@ -926,3 +1196,108 @@ Before writing code for any command or complex function:
 ---
 
 *This document is the authoritative guide for AI code generation in Titan POS.*
+
+---
+
+## 🚨 Common Failure Categories & Prevention Strategy
+
+The pitfalls above fall into **four major categories**. Understanding these categories helps predict and prevent similar issues in future features.
+
+### Category 1: Cross-Boundary Type Mismatches
+**Pattern**: Types don't match across system boundaries (Rust↔TypeScript, SQL↔Rust, DTO↔Domain).
+
+**Examples**: 
+- #3 (Serde rename_all forgotten)
+- #9 (Frontend-backend type drift)
+- #7 (SQLx nullable column mismatches)
+
+**Prevention Protocol**:
+1. Before writing any DTO, write the TypeScript interface FIRST
+2. Use `#[serde(rename_all = "camelCase")]` on EVERY struct exposed to frontend
+3. Run `cargo build` with `DATABASE_URL` set BEFORE writing repository code
+4. Consider using `ts-rs` crate for automated type generation
+
+### Category 2: Environment & Path Assumptions
+**Pattern**: Code assumes paths, directories, or environment state that differs across contexts.
+
+**Examples**:
+- #8 (Tauri runs from target/debug, not project root)
+- #5 (Migrations not run, tables don't exist)
+- #7 (DATABASE_URL not set, stale cache used)
+
+**Prevention Protocol**:
+1. NEVER use relative paths without `env!("CARGO_MANIFEST_DIR")`
+2. ALWAYS log resolved paths at startup: `info!(?path, "Using database")`
+3. Test BOTH `cargo run` AND `pnpm tauri dev` - they behave differently
+4. Document required environment variables in README
+
+### Category 3: Reactive Framework Mental Model Errors
+**Pattern**: Applying React patterns to SolidJS, or misunderstanding how reactivity flows.
+
+**Examples**:
+- #10 (SolidJS event handler closures capture stale values)
+- #12 (UI disabled states triggered by seed data edge cases)
+
+**Prevention Protocol**:
+1. NEVER destructure SolidJS props: `const { x } = props` is WRONG
+2. ALWAYS use arrow functions for event handlers: `onClick={() => handler(props.x)}`
+3. Test UI with sorted/filtered data, not just default order
+4. Use `createMemo` for derived values, not inline calculations
+
+### Category 4: Development vs Production Behavior Differences
+**Pattern**: Things work in one mode but not another, or dev mode has unexpected overhead.
+
+**Examples**:
+- #11 (11GB memory in development, crashes machine)
+- #8 (Path resolution differs between cargo run and tauri dev)
+
+**Prevention Protocol**:
+1. Periodically test with `--release` builds
+2. Restart dev server every 1-2 hours
+3. Monitor memory usage (keep Activity Monitor open)
+4. Document "normal" dev mode resource usage
+
+---
+
+## 🔄 Development Workflow Improvements
+
+Based on lessons learned, follow this workflow for every feature:
+
+### Pre-Implementation (5 minutes)
+```bash
+# 1. Ensure database is up-to-date
+export DATABASE_URL="sqlite:data/titan.db"
+cargo run -p titan-db --bin seed  # Only if needed
+
+# 2. Verify compilation
+cargo build
+
+# 3. Check current memory baseline
+# Open Activity Monitor
+```
+
+### During Implementation
+1. **Write TypeScript types FIRST**, then match Rust DTOs
+2. **Add `#[serde(rename_all = "camelCase")]`** immediately when creating DTOs
+3. **Test incrementally**: After each Tauri command, verify it's callable from frontend
+4. **Watch for memory creep**: If >6GB, restart dev server
+
+### Post-Implementation (5 minutes)
+```bash
+# 1. Full build from clean state
+cargo clean && DATABASE_URL="sqlite:data/titan.db" cargo build
+
+# 2. Test with fresh database
+rm data/titan.db && cargo run -p titan-db --bin seed
+
+# 3. Verify in release mode (catches different issues)
+cd apps/desktop && pnpm tauri dev --release
+```
+
+### When Debugging Issues
+1. **Check Tauri logs FIRST** - if `add_to_cart` isn't logged, frontend isn't calling it
+2. **Open browser devtools** - Console errors reveal invoke failures
+3. **Verify types match** - Console.log API responses to check JSON structure
+4. **Check seed data** - Some products might be intentionally disabled
+
+---

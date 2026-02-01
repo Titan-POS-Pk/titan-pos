@@ -47,7 +47,7 @@ impl SaleRepository {
 
     /// Gets a sale by ID.
     pub async fn get_by_id(&self, id: &str) -> DbResult<Option<Sale>> {
-        let sale = sqlx::query_as!(
+        let sale: Option<Sale> = sqlx::query_as!(
             Sale,
             r#"
             SELECT 
@@ -231,7 +231,7 @@ impl SaleRepository {
 
     /// Gets all items for a sale.
     pub async fn get_items(&self, sale_id: &str) -> DbResult<Vec<SaleItem>> {
-        let items = sqlx::query_as!(
+        let items: Vec<SaleItem> = sqlx::query_as!(
             SaleItem,
             r#"
             SELECT 
@@ -272,7 +272,7 @@ impl SaleRepository {
     ) -> DbResult<()> {
         let now = Utc::now();
 
-        let result = sqlx::query!(
+        let result: sqlx::sqlite::SqliteQueryResult = sqlx::query!(
             r#"
             UPDATE sales SET
                 subtotal_cents = ?2,
@@ -308,7 +308,7 @@ impl SaleRepository {
     pub async fn finalize_sale(&self, sale_id: &str) -> DbResult<()> {
         let now = Utc::now();
 
-        let result = sqlx::query!(
+        let result: sqlx::sqlite::SqliteQueryResult = sqlx::query!(
             r#"
             UPDATE sales SET
                 status = 'completed',
@@ -334,7 +334,7 @@ impl SaleRepository {
     pub async fn void_sale(&self, sale_id: &str) -> DbResult<()> {
         let now = Utc::now();
 
-        let result = sqlx::query!(
+        let result: sqlx::sqlite::SqliteQueryResult = sqlx::query!(
             r#"
             UPDATE sales SET
                 status = 'voided',
@@ -388,7 +388,7 @@ impl SaleRepository {
 
     /// Gets all payments for a sale.
     pub async fn get_payments(&self, sale_id: &str) -> DbResult<Vec<Payment>> {
-        let payments = sqlx::query_as!(
+        let payments: Vec<Payment> = sqlx::query_as!(
             Payment,
             r#"
             SELECT 

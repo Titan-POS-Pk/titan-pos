@@ -163,22 +163,65 @@ fn init_tracing() {
 
 /// Determines the database file path based on the platform.
 ///
-/// ## Platform-Specific Paths
+/// ## Development Mode
+/// In development, the app looks for a seeded database in `data/titan.db`
+/// relative to the project root. This allows using the same database
+/// seeded by `cargo run -p titan-db --bin seed`.
+///
+/// ## Platform-Specific Paths (Production)
 /// - **macOS**: `~/Library/Application Support/com.titan.pos/titan.db`
 /// - **Windows**: `%APPDATA%\titan\pos\titan.db`
 /// - **Linux**: `~/.local/share/titan-pos/titan.db`
 ///
-/// ## Development Override
+/// ## Environment Override
 /// Set `TITAN_DB_PATH` environment variable to use a custom path.
+///
+/// ## Development Workflow
+/// ```bash
+/// # 1. Seed the database from project root
+/// cargo run -p titan-db --bin seed
+///
+/// # 2. Run the Tauri app (auto-detects data/titan.db)
+/// cd apps/desktop && pnpm tauri dev
+/// ```
 fn get_database_path(_app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Check for override
+    // Check for explicit override first
     if let Ok(path) = std::env::var("TITAN_DB_PATH") {
+        info!(path = %path, "Using TITAN_DB_PATH override");
         return Ok(PathBuf::from(path));
     }
 
-    // Use platform-specific app data directory
-    let proj_dirs = ProjectDirs::from("com", "titan", "pos")
-        .ok_or("Could not determine app data directory")?;
+    // In development, look for the seeded database in data/titan.db
+    // Note: Tauri runs the binary from target/debug, so relative paths won't work
+    // We use CARGO_MANIFEST_DIR at compile time to find the project root
+    #[cfg(debug_assertions)]
+    {
+        // Paths to try, in order of preference:
+        // 1. Relative to CARGO_MANIFEST_DIR (set at compile time for src-tauri)
+        // 2. Standard project root locations
+        let paths_to_try = [
+            // From apps/desktop/src-tauri, go up to project root
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../data/titan.db")),
+            // From project root (if running cargo run directly)
+            PathBuf::from("./data/titan.db"),
+            // From apps/desktop directory
+            PathBuf::from("../../data/titan.db"),
+        ];
+
+        for path in &paths_to_try {
+            if path.exists() {
+                let canonical = path.canonicalize()?;
+                info!(?canonical, "Using development database");
+                return Ok(canonical);
+            }
+        }
+
+        info!("No development database found, using platform-specific path");
+    }
+
+    // Use platform-specific app data directory (production)
+    let proj_dirs =
+        ProjectDirs::from("com", "titan", "pos").ok_or("Could not determine app data directory")?;
 
     let data_dir = proj_dirs.data_dir();
 

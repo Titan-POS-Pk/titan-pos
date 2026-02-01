@@ -36,10 +36,7 @@ pub enum DbError {
     /// - ID doesn't exist
     /// - Soft-deleted record
     #[error("{entity} not found: {id}")]
-    NotFound {
-        entity: String,
-        id: String,
-    },
+    NotFound { entity: String, id: String },
 
     /// Unique constraint violation.
     ///
@@ -48,10 +45,7 @@ pub enum DbError {
     /// - Duplicate receipt number
     /// - Any UNIQUE index violation
     #[error("Duplicate {field}: '{value}' already exists")]
-    UniqueViolation {
-        field: String,
-        value: String,
-    },
+    UniqueViolation { field: String, value: String },
 
     /// Foreign key constraint violation.
     ///
@@ -59,9 +53,7 @@ pub enum DbError {
     /// - Referencing non-existent product_id
     /// - Referencing non-existent sale_id
     #[error("Foreign key violation: {message}")]
-    ForeignKeyViolation {
-        message: String,
-    },
+    ForeignKeyViolation { message: String },
 
     /// Database connection failed.
     ///

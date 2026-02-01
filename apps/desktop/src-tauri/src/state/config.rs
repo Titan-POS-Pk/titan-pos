@@ -57,22 +57,17 @@ pub struct ConfigState {
 }
 
 /// How tax is calculated on items.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum TaxMode {
     /// Tax is calculated on top of the price (US style)
     /// Display: $10.00 + $0.83 tax = $10.83
+    #[default]
     Exclusive,
 
     /// Tax is included in the displayed price (EU style)
     /// Display: $10.83 (includes $0.83 tax)
     Inclusive,
-}
-
-impl Default for TaxMode {
-    fn default() -> Self {
-        TaxMode::Exclusive
-    }
 }
 
 /// Printer configuration.
@@ -116,10 +111,7 @@ impl Default for ConfigState {
         ConfigState {
             tenant_id: DEFAULT_TENANT_ID.to_string(),
             store_name: "Titan POS Dev Store".to_string(),
-            store_address: vec![
-                "123 Main Street".to_string(),
-                "City, ST 12345".to_string(),
-            ],
+            store_address: vec!["123 Main Street".to_string(), "City, ST 12345".to_string()],
             currency_code: "USD".to_string(),
             currency_symbol: "$".to_string(),
             currency_decimals: 2,

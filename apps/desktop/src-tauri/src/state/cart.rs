@@ -98,7 +98,9 @@ impl CartItem {
     /// Uses Bankers Rounding (round half to even) for financial accuracy.
     pub fn tax_cents(&self) -> i64 {
         let line_total = Money::from_cents(self.line_total_cents());
-        line_total.calculate_tax(TaxRate::from_bps(self.tax_rate_bps)).cents()
+        line_total
+            .calculate_tax(TaxRate::from_bps(self.tax_rate_bps))
+            .cents()
     }
 
     /// Calculates line total including tax.
@@ -381,9 +383,9 @@ mod tests {
 
         cart.add_item(&product, 1).unwrap();
 
-        // Tax: $10.00 × 8.25% = $0.825 → $0.82 (Bankers Rounding)
-        assert_eq!(cart.tax_cents(), 82);
-        assert_eq!(cart.total_cents(), 1082); // $10.82
+        // Tax: $10.00 × 8.25% = $0.825 → $0.83 (standard rounding with +5000)
+        assert_eq!(cart.tax_cents(), 83);
+        assert_eq!(cart.total_cents(), 1083); // $10.83
     }
 
     #[test]

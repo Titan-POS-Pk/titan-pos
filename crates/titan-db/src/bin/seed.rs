@@ -187,7 +187,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     let mut count: usize = 5000;
-    let mut db_path = String::from("./titan_dev.db");
+    // Default to data/titan.db in project root for development
+    let mut db_path = String::from("./data/titan.db");
 
     let mut i = 1;
     while i < args.len() {
@@ -211,8 +212,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!();
                 println!("Options:");
                 println!("  -c, --count <N>    Number of products to generate (default: 5000)");
-                println!("  -d, --db <PATH>    Database file path (default: ./titan_dev.db)");
+                println!("  -d, --db <PATH>    Database file path (default: ./data/titan.db)");
                 println!("  -h, --help         Show this help message");
+                println!();
+                println!("Note: Run this from the project root directory.");
+                println!("      The Tauri app uses TITAN_DB_PATH env var to locate this DB.");
                 return Ok(());
             }
             _ => {}
@@ -320,7 +324,12 @@ fn generate_product(
     let now = Utc::now();
 
     // Generate unique SKU
-    let sku = format!("{}-{}-{:03}", category, &name.replace(' ', "")[..3].to_uppercase(), seed);
+    let sku = format!(
+        "{}-{}-{:03}",
+        category,
+        &name.replace(' ', "")[..3].to_uppercase(),
+        seed
+    );
 
     // Generate barcode (EAN-13 format, but not valid checksum)
     let barcode = Some(format!("590{:010}", seed));

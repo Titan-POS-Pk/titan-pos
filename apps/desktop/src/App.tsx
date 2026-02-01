@@ -27,7 +27,7 @@
  * - `cart`: Current cart state (synced with Rust backend)
  */
 
-import { Component, createSignal, createEffect, onMount, Show } from 'solid-js';
+import { Component, createSignal, onMount, Show } from 'solid-js';
 import { invoke } from '@tauri-apps/api/core';
 
 // Components

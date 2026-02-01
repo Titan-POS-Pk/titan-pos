@@ -42,8 +42,9 @@ interface CartProps {
 }
 
 const Cart: Component<CartProps> = (props) => {
-  const { cart, config } = props;
-  const symbol = () => config?.currencySymbol ?? '$';
+  // ⚠️ DO NOT destructure props in SolidJS - it breaks reactivity!
+  // Access props.cart and props.config directly to ensure current values
+  const symbol = () => props.config?.currencySymbol ?? '$';
 
   return (
     <div class="flex flex-col h-full">
@@ -51,13 +52,13 @@ const Cart: Component<CartProps> = (props) => {
       <div class="p-4 border-b border-gray-200 flex items-center justify-between">
         <h2 class="text-lg font-bold text-gray-900">Cart</h2>
         <span class="text-sm text-gray-500">
-          {cart.totals.itemCount} {cart.totals.itemCount === 1 ? 'item' : 'items'}
+          {props.cart.totals.itemCount} {props.cart.totals.itemCount === 1 ? 'item' : 'items'}
         </span>
       </div>
 
       {/* Cart Items */}
       <div class="flex-1 overflow-auto p-4">
-        <Show when={cart.items.length === 0}>
+        <Show when={props.cart.items.length === 0}>
           <div class="flex flex-col items-center justify-center h-full text-gray-400">
             <svg
               class="w-16 h-16 mb-4"
@@ -77,7 +78,7 @@ const Cart: Component<CartProps> = (props) => {
           </div>
         </Show>
 
-        <For each={cart.items}>
+        <For each={props.cart.items}>
           {(item) => (
             <CartItemRow
               item={item}
@@ -90,18 +91,18 @@ const Cart: Component<CartProps> = (props) => {
       </div>
 
       {/* Totals */}
-      <Show when={cart.items.length > 0}>
+      <Show when={props.cart.items.length > 0}>
         <div class="border-t border-gray-200 p-4 space-y-2">
           {/* Subtotal */}
           <div class="flex justify-between text-sm text-gray-600">
             <span>Subtotal</span>
-            <span>{formatMoney(cart.totals.subtotalCents, symbol())}</span>
+            <span>{formatMoney(props.cart.totals.subtotalCents, symbol())}</span>
           </div>
 
           {/* Tax */}
           <div class="flex justify-between text-sm text-gray-600">
-            <span>Tax ({formatTaxRate(config?.defaultTaxRateBps ?? 825)})</span>
-            <span>{formatMoney(cart.totals.taxCents, symbol())}</span>
+            <span>Tax ({formatTaxRate(props.config?.defaultTaxRateBps ?? 825)})</span>
+            <span>{formatMoney(props.cart.totals.taxCents, symbol())}</span>
           </div>
 
           {/* Divider */}
@@ -111,7 +112,7 @@ const Cart: Component<CartProps> = (props) => {
           <div class="flex justify-between items-center">
             <span class="text-lg font-bold text-gray-900">Total</span>
             <span class="price-display-large">
-              {formatMoney(cart.totals.totalCents, symbol())}
+              {formatMoney(props.cart.totals.totalCents, symbol())}
             </span>
           </div>
         </div>
@@ -145,31 +146,32 @@ interface CartItemRowProps {
  * Individual cart item row with quantity controls.
  */
 const CartItemRow: Component<CartItemRowProps> = (props) => {
-  const { item, symbol } = props;
+  // ⚠️ DO NOT destructure props in SolidJS - it breaks reactivity!
+  // Access props.item and props.symbol directly
 
-  const lineTotal = () => item.unitPriceCents * item.quantity;
+  const lineTotal = () => props.item.unitPriceCents * props.item.quantity;
 
   const handleDecrement = () => {
-    if (item.quantity > 1) {
-      props.onUpdateQuantity(item.quantity - 1);
+    if (props.item.quantity > 1) {
+      props.onUpdateQuantity(props.item.quantity - 1);
     } else {
       props.onRemove();
     }
   };
 
   const handleIncrement = () => {
-    props.onUpdateQuantity(item.quantity + 1);
+    props.onUpdateQuantity(props.item.quantity + 1);
   };
 
   return (
     <div class="cart-item">
       <div class="flex-1 min-w-0">
         {/* Product Name */}
-        <h4 class="font-medium text-gray-900 truncate">{item.name}</h4>
+        <h4 class="font-medium text-gray-900 truncate">{props.item.name}</h4>
 
         {/* Unit Price */}
         <p class="text-sm text-gray-500">
-          {formatMoney(item.unitPriceCents, symbol)} each
+          {formatMoney(props.item.unitPriceCents, props.symbol)} each
         </p>
 
         {/* Quantity Controls */}
@@ -180,7 +182,7 @@ const CartItemRow: Component<CartItemRowProps> = (props) => {
           >
             −
           </button>
-          <span class="w-8 text-center font-medium">{item.quantity}</span>
+          <span class="w-8 text-center font-medium">{props.item.quantity}</span>
           <button
             onClick={handleIncrement}
             class="w-8 h-8 flex items-center justify-center rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700"
@@ -207,7 +209,7 @@ const CartItemRow: Component<CartItemRowProps> = (props) => {
       {/* Line Total */}
       <div class="text-right ml-4">
         <span class="font-mono font-semibold text-gray-900">
-          {formatMoney(lineTotal(), symbol)}
+          {formatMoney(lineTotal(), props.symbol)}
         </span>
       </div>
     </div>

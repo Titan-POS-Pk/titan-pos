@@ -338,10 +338,7 @@ impl Database {
     /// * `true` - Database is responsive
     /// * `false` - Database is unavailable
     pub async fn health_check(&self) -> bool {
-        sqlx::query("SELECT 1")
-            .execute(&self.pool)
-            .await
-            .is_ok()
+        sqlx::query("SELECT 1").execute(&self.pool).await.is_ok()
     }
 }
 

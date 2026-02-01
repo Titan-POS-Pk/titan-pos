@@ -103,7 +103,7 @@ impl ProductRepository {
 
         // Query using FTS5 MATCH
         // We join back to products table to get all columns
-        let products = sqlx::query_as!(
+        let products: Vec<Product> = sqlx::query_as!(
             Product,
             r#"
             SELECT 
@@ -146,7 +146,7 @@ impl ProductRepository {
     /// Called when search query is empty.
     /// Returns products sorted by name.
     async fn list_active(&self, limit: u32) -> DbResult<Vec<Product>> {
-        let products = sqlx::query_as!(
+        let products: Vec<Product> = sqlx::query_as!(
             Product,
             r#"
             SELECT 
@@ -188,7 +188,7 @@ impl ProductRepository {
     /// * `Ok(Some(Product))` - Product found
     /// * `Ok(None)` - Product not found
     pub async fn get_by_id(&self, id: &str) -> DbResult<Option<Product>> {
-        let product = sqlx::query_as!(
+        let product: Option<Product> = sqlx::query_as!(
             Product,
             r#"
             SELECT 
@@ -228,7 +228,7 @@ impl ProductRepository {
     /// * `Ok(Some(Product))` - Product found
     /// * `Ok(None)` - Product not found
     pub async fn get_by_sku(&self, sku: &str) -> DbResult<Option<Product>> {
-        let product = sqlx::query_as!(
+        let product: Option<Product> = sqlx::query_as!(
             Product,
             r#"
             SELECT 
@@ -253,6 +253,50 @@ impl ProductRepository {
             "#,
             sku,
             DEFAULT_TENANT_ID
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(product)
+    }
+
+    /// Gets a product by its barcode (EAN-13, UPC-A, etc.).
+    ///
+    /// ## Performance
+    /// Uses indexed lookup on barcode column for O(log n) performance.
+    /// This is called for barcode scanner input to provide instant results.
+    ///
+    /// ## Arguments
+    /// * `barcode` - Product barcode (e.g., "5449000000996")
+    ///
+    /// ## Returns
+    /// * `Ok(Some(Product))` - Product found
+    /// * `Ok(None)` - Product not found (barcode not in system)
+    pub async fn get_by_barcode(&self, barcode: &str) -> DbResult<Option<Product>> {
+        let product: Option<Product> = sqlx::query_as!(
+            Product,
+            r#"
+            SELECT 
+                id,
+                tenant_id,
+                sku,
+                barcode,
+                name,
+                description,
+                price_cents,
+                cost_cents,
+                tax_rate_bps as "tax_rate_bps: u32",
+                track_inventory as "track_inventory: bool",
+                allow_negative_stock as "allow_negative_stock: bool",
+                current_stock,
+                is_active as "is_active: bool",
+                created_at as "created_at: chrono::DateTime<Utc>",
+                updated_at as "updated_at: chrono::DateTime<Utc>",
+                sync_version
+            FROM products
+            WHERE barcode = ?1 AND is_active = 1
+            "#,
+            barcode
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -322,7 +366,7 @@ impl ProductRepository {
 
         let now = Utc::now();
 
-        let result = sqlx::query!(
+        let result: sqlx::sqlite::SqliteQueryResult = sqlx::query!(
             r#"
             UPDATE products SET
                 sku = ?2,
@@ -392,7 +436,7 @@ impl ProductRepository {
 
         let now = Utc::now();
 
-        let result = sqlx::query!(
+        let result: sqlx::sqlite::SqliteQueryResult = sqlx::query!(
             r#"
             UPDATE products 
             SET 
@@ -426,7 +470,7 @@ impl ProductRepository {
 
         let now = Utc::now();
 
-        let result = sqlx::query!(
+        let result: sqlx::sqlite::SqliteQueryResult = sqlx::query!(
             r#"
             UPDATE products 
             SET 

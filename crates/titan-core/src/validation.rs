@@ -27,14 +27,14 @@
 //! ```
 //!
 //! ## Usage
-//! ```rust
+//! ```rust,no_run
 //! use titan_core::validation::{validate_sku, validate_quantity};
 //!
 //! // Validate SKU before database insert
-//! validate_sku("COKE-330")?;
+//! validate_sku("COKE-330").unwrap();
 //!
 //! // Validate quantity before cart operation
-//! validate_quantity(5)?;
+//! validate_quantity(5).unwrap();
 //! ```
 
 use crate::error::ValidationError;

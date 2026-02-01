@@ -185,24 +185,19 @@ impl Product {
 // =============================================================================
 
 /// The status of a sale transaction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(rename_all = "lowercase"))]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum SaleStatus {
     /// Sale is in progress (items being added).
+    #[default]
     Draft,
     /// Sale has been paid and finalized.
     Completed,
     /// Sale was cancelled/refunded.
     Voided,
-}
-
-impl Default for SaleStatus {
-    fn default() -> Self {
-        SaleStatus::Draft
-    }
 }
 
 // =============================================================================
@@ -361,20 +356,15 @@ pub struct SyncOutboxEntry {
 // =============================================================================
 
 /// Tax calculation mode for the tenant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum TaxMode {
     /// Price + tax shown separately (USA model).
+    #[default]
     Exclusive,
     /// Price includes tax (EU/UK model).
     Inclusive,
-}
-
-impl Default for TaxMode {
-    fn default() -> Self {
-        TaxMode::Exclusive
-    }
 }
 
 // =============================================================================

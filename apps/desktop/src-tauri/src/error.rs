@@ -202,7 +202,10 @@ impl From<CoreError> for ApiError {
                     sku, available, requested
                 ),
             ),
-            CoreError::InvalidSaleStatus { sale_id, current_status } => ApiError::new(
+            CoreError::InvalidSaleStatus {
+                sale_id,
+                current_status,
+            } => ApiError::new(
                 ErrorCode::BusinessLogic,
                 format!("Sale {} is in {} status", sale_id, current_status),
             ),

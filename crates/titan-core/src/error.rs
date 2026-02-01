@@ -40,7 +40,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum CoreError {
     /// Product cannot be found.
-    /// 
+    ///
     /// ## When This Occurs
     /// - Product ID doesn't exist in database
     /// - Product was deleted (soft delete)
