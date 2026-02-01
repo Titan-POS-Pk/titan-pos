@@ -1,0 +1,99 @@
+# =============================================================================
+# titan-sync: Sync Engine for Titan POS
+# =============================================================================
+#
+# This crate handles device-to-device and cloud synchronization.
+#
+# ## Architecture Position (v0.2+)
+# ```text
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │                       Titan POS Sync Layer                              │
+# │                                                                         │
+# │  ┌─────────────────────────────────────────────────────────────────┐   │
+# │  │                     titan-sync (THIS CRATE)                     │   │
+# │  │                                                                 │   │
+# │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │   │
+# │  │  │ SyncAgent   │  │ Transport   │  │ OutboxProcessor        │ │   │
+# │  │  │ (agent.rs)  │  │ (WS client) │  │ (batch upload)         │ │   │
+# │  │  │             │  │             │  │                        │ │   │
+# │  │  │ Orchestrates│  │ WebSocket   │  │ Reads sync_outbox      │ │   │
+# │  │  │ all sync    │◄─│ with auto   │◄─│ Batches & sends        │ │   │
+# │  │  │ operations  │  │ reconnect   │  │ Marks as synced        │ │   │
+# │  │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │   │
+# │  │                                                                 │   │
+# │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │   │
+# │  │  │ Protocol    │  │ Config      │  │ InboundHandler         │ │   │
+# │  │  │ (messages)  │  │ (TOML+DB)   │  │ (apply updates)        │ │   │
+# │  │  │             │  │             │  │                        │ │   │
+# │  │  │ JSON-based  │  │ SyncMode    │  │ Product/Price/Stock    │ │   │
+# │  │  │ messages    │  │ Device ID   │  │ changes from PRIMARY   │ │   │
+# │  │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │   │
+# │  │                                                                 │   │
+# │  └─────────────────────────────────────────────────────────────────┘   │
+# │                                                                         │
+# │  DEPENDENCIES:                                                         │
+# │  • titan-core: Pure types (SyncOutboxEntry, Product, etc.)            │
+# │  • titan-db: Database access (for marking outbox, applying updates)    │
+# │                                                                         │
+# └─────────────────────────────────────────────────────────────────────────┘
+# ```
+#
+# ## Key Features
+# - WebSocket-based real-time sync with auto-reconnect
+# - Outbox pattern for reliable offline sync
+# - JSON serialization (v0.2), Protobuf planned for v0.4
+# - Configurable sync modes: Auto, Primary, Secondary
+#
+# =============================================================================
+
+[package]
+name = "titan-sync"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal dependencies
+titan-core = { path = "../titan-core" }
+titan-db = { path = "../titan-db" }
+
+# Database (for direct queries in inbound handler)
+# TODO: Refactor to use titan-db repository pattern in Milestone 2
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "time"] }
+
+# WebSocket client
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Configuration
+toml = "0.8"
+directories = "5"
+
+# Error handling
+thiserror = { workspace = true }
+
+# Retry/backoff
+backoff = { version = "0.4", features = ["tokio"] }
+
+# Logging
+tracing = { workspace = true }
+
+# UUIDs
+uuid = { workspace = true }
+
+# Date/time
+chrono = { workspace = true }
+
+# URL parsing
+url = "2.5"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

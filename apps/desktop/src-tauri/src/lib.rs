@@ -11,12 +11,14 @@
 //! │   ├── mod.rs      ◄─── State type exports
 //! │   ├── db.rs       ◄─── Database state wrapper
 //! │   ├── cart.rs     ◄─── Cart state management
-//! │   └── config.rs   ◄─── Configuration state
+//! │   ├── config.rs   ◄─── Configuration state
+//! │   └── sync.rs     ◄─── Sync agent state
 //! ├── commands/
 //! │   ├── mod.rs      ◄─── Command exports
 //! │   ├── product.rs  ◄─── Product search/CRUD commands
 //! │   ├── sale.rs     ◄─── Sale/transaction commands
-//! │   └── cart.rs     ◄─── Cart manipulation commands
+//! │   ├── cart.rs     ◄─── Cart manipulation commands
+//! │   └── sync.rs     ◄─── Sync status/control commands
 //! └── error.rs        ◄─── API error type for commands
 //! ```
 //!
@@ -30,13 +32,13 @@
 //! │  Option B: Multiple State Types (CHOSEN)                               │
 //! │  ─────────────────────────────────────────                             │
 //! │                                                                         │
-//! │  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────────┐   │
-//! │  │    DbState       │ │    CartState     │ │    ConfigState       │   │
-//! │  │                  │ │                  │ │                      │   │
-//! │  │  • Database pool │ │  • Current cart  │ │  • Tenant ID         │   │
-//! │  │  • Repositories  │ │  • Cart items    │ │  • Tax rates         │   │
-//! │  │                  │ │  • Totals        │ │  • Store name        │   │
-//! │  └──────────────────┘ └──────────────────┘ └──────────────────────┘   │
+//! │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐      │
+//! │  │   DbState   │ │  CartState  │ │ ConfigState │ │  SyncState  │      │
+//! │  │             │ │             │ │             │ │             │      │
+//! │  │ • Database  │ │ • Cart      │ │ • Tenant ID │ │ • SyncAgent │      │
+//! │  │   pool      │ │   items     │ │ • Tax rates │ │ • Status    │      │
+//! │  │ • Repos     │ │ • Totals    │ │ • Store     │ │ • Events    │      │
+//! │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘      │
 //! │                                                                         │
 //! │  WHY: Each command only requests the state it needs.                   │
 //! │       Better separation of concerns and testability.                   │
@@ -53,7 +55,7 @@ use tauri::Manager;
 use tracing::{info, Level};
 use tracing_subscriber::EnvFilter;
 
-use state::{CartState, ConfigState, DbState};
+use state::{CartState, ConfigState, DbState, SyncState};
 use titan_db::{Database, DbConfig};
 
 /// Runs the Tauri application.
@@ -113,13 +115,15 @@ pub fn run() {
             let db_state = DbState::new(db);
             let cart_state = CartState::new();
             let config_state = ConfigState::default();
+            let sync_state = SyncState::new();
 
             // Register state with Tauri
             app.manage(db_state);
             app.manage(cart_state);
             app.manage(config_state);
+            app.manage(sync_state);
 
-            info!("State initialized");
+            info!("State initialized (sync agent not started - requires configuration)");
             Ok(())
         })
         // Register all commands
@@ -140,6 +144,11 @@ pub fn run() {
             commands::sale::finalize_sale,
             // Config commands
             commands::config::get_config,
+            // Sync commands
+            commands::sync::get_sync_status,
+            commands::sync::get_sync_config,
+            commands::sync::set_sync_mode,
+            commands::sync::get_pending_sync_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,8 +1,8 @@
 # Titan POS v0.2 - Development Progress
 
-> **Status**: 🟡 Planning - Sync Architecture Defined  
+> **Status**: 🟡 In Progress - Milestone 1 Complete  
 > **Target**: v0.2 "Store Sync & Auto-Hub"  
-> **Last Updated**: February 1, 2026
+> **Last Updated**: February 2, 2026
 
 ---
 
@@ -23,17 +23,38 @@ Key decisions (from `docs/architecture/SYNC_ARCHITECTURE.md` + your confirmation
 
 ## Milestones (All part of v0.2)
 
-### Milestone 1: Sync Agent Foundation ⬜
+### Milestone 1: Sync Agent Foundation ✅
 **Goal**: Core sync engine for POS devices
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Create `titan-sync` crate | ⬜ | New crate in `crates/` |
-| Sync configuration model | ⬜ | Modes: auto/primary/secondary |
-| Outbox processor | ⬜ | Batch uploads from `sync_outbox` |
-| WebSocket client | ⬜ | Reconnect with backoff |
-| Sync acknowledgements | ⬜ | Mark outbox rows as synced |
-| Inbound updates pipeline | ⬜ | Apply product/price/inventory updates |
+| Create `titan-sync` crate | ✅ | `crates/titan-sync/` with full module structure |
+| Sync configuration model | ✅ | `SyncConfig`, `SyncMode` enum (auto/primary/secondary/offline) |
+| Protocol messages | ✅ | JSON-serializable messages: Hello, Welcome, OutboxBatch, BatchAck, EntityUpdate, etc. |
+| WebSocket transport | ✅ | `tokio-tungstenite` with exponential backoff reconnection |
+| Outbox processor | ✅ | Batch uploads from `sync_outbox`, acknowledgement handling |
+| Inbound updates pipeline | ✅ | Apply product/price/inventory updates with version checking |
+| Sync agent coordinator | ✅ | `SyncAgent` orchestrates all components |
+| Database migration | ✅ | `003_sync_tables.sql` (inventory_deltas, sync_cursors, node_state) |
+| Tauri integration | ✅ | `SyncState`, sync commands, event emission |
+
+**Deliverable**: Sync agent can connect to hub, upload outbox, receive updates ✅
+
+#### Files Created
+| File | Purpose |
+|------|---------|
+| `crates/titan-sync/Cargo.toml` | Crate manifest with dependencies |
+| `crates/titan-sync/src/lib.rs` | Public API exports |
+| `crates/titan-sync/src/error.rs` | SyncError enum with 20+ variants |
+| `crates/titan-sync/src/config.rs` | Configuration with TOML support |
+| `crates/titan-sync/src/protocol.rs` | Message types for sync communication |
+| `crates/titan-sync/src/transport.rs` | WebSocket client with reconnect |
+| `crates/titan-sync/src/outbox.rs` | OutboxProcessor for batch uploads |
+| `crates/titan-sync/src/inbound.rs` | InboundHandler for applying updates |
+| `crates/titan-sync/src/agent.rs` | SyncAgent coordinator |
+| `migrations/sqlite/003_sync_tables.sql` | New tables for sync |
+| `apps/desktop/src-tauri/src/state/sync.rs` | Tauri sync state |
+| `apps/desktop/src-tauri/src/commands/sync.rs` | Sync commands |
 
 ---
 

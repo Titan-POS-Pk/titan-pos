@@ -42,7 +42,7 @@
 members = [
     "crates/titan-core",      # Pure business logic (no I/O)
     "crates/titan-db",        # Database layer (SQLite)
-    # "crates/titan-sync",    # Sync engine (future - v0.5+)
+    "crates/titan-sync",      # Sync engine (v0.2+)
     "apps/desktop/src-tauri", # Tauri desktop application
 ]
 

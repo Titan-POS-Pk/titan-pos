@@ -58,6 +58,7 @@ path = "src/main.rs"
 # Workspace crates
 titan-core = { path = "../../../crates/titan-core" }
 titan-db = { path = "../../../crates/titan-db" }
+titan-sync = { path = "../../../crates/titan-sync" }
 
 # Tauri v2 - The core framework for building desktop apps
 # See: https://v2.tauri.app/

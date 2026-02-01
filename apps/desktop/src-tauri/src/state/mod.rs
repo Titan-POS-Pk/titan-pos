@@ -20,29 +20,33 @@
 //! │  │  app.manage(db_state);                                          │   │
 //! │  │  app.manage(cart_state);                                        │   │
 //! │  │  app.manage(config_state);                                      │   │
+//! │  │  app.manage(sync_state);                                        │   │
 //! │  └─────────────────────────────────────────────────────────────────┘   │
 //! │                              │                                          │
-//! │          ┌──────────────────┼──────────────────┐                       │
-//! │          ▼                  ▼                  ▼                        │
-//! │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐              │
-//! │  │   DbState    │  │  CartState   │  │   ConfigState    │              │
-//! │  │              │  │              │  │                  │              │
-//! │  │  Database    │  │  Arc<Mutex<  │  │  tenant_id       │              │
-//! │  │  (SQLite     │  │    Cart      │  │  store_name      │              │
-//! │  │   pool)      │  │  >>          │  │  tax_rate        │              │
-//! │  └──────────────┘  └──────────────┘  └──────────────────┘              │
+//! │          ┌──────────────────┼──────────────────┬───────────┐           │
+//! │          ▼                  ▼                  ▼           ▼            │
+//! │  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────┐    │
+//! │  │   DbState    │  │  CartState   │  │ ConfigState │  │SyncState │    │
+//! │  │              │  │              │  │             │  │          │    │
+//! │  │  Database    │  │  Arc<Mutex<  │  │ tenant_id   │  │SyncAgent │    │
+//! │  │  (SQLite     │  │    Cart      │  │ store_name  │  │  handle  │    │
+//! │  │   pool)      │  │  >>          │  │ tax_rate    │  │          │    │
+//! │  └──────────────┘  └──────────────┘  └─────────────┘  └──────────┘    │
 //! │                                                                         │
 //! │  THREAD SAFETY:                                                        │
 //! │  • DbState: Database has internal connection pool (thread-safe)        │
 //! │  • CartState: Protected by Arc<Mutex<T>> for exclusive access          │
 //! │  • ConfigState: Read-only after initialization                         │
+//! │  • SyncState: RwLock for status, agent runs in background task         │
 //! └─────────────────────────────────────────────────────────────────────────┘
 //! ```
 
 mod cart;
 mod config;
 mod db;
+mod sync;
 
 pub use cart::{Cart, CartItem, CartState, CartTotals};
 pub use config::ConfigState;
 pub use db::DbState;
+pub use sync::{SyncState, SyncStatusDto, TauriSyncEventEmitter};

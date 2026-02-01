@@ -9,7 +9,8 @@
 //! ├── product.rs  ◄─── Product search, CRUD
 //! ├── cart.rs     ◄─── Cart manipulation
 //! ├── sale.rs     ◄─── Sale/payment processing
-//! └── config.rs   ◄─── Configuration retrieval
+//! ├── config.rs   ◄─── Configuration retrieval
+//! └── sync.rs     ◄─── Sync status and control
 //! ```
 //!
 //! ## How Commands Work
@@ -54,9 +55,13 @@
 //!
 //! // Needs both
 //! async fn add_to_cart(db: State<'_, DbState>, cart: State<'_, CartState>, ...)
+//!
+//! // Sync commands
+//! async fn get_sync_status(sync: State<'_, SyncState>)
 //! ```
 
 pub mod cart;
 pub mod config;
 pub mod product;
 pub mod sale;
+pub mod sync;
