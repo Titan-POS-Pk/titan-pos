@@ -94,7 +94,8 @@ pnpm tauri build
 | [Architecture Decisions](docs/architecture/ARCHITECTURE_DECISIONS.md) | ADRs and design rationale |
 | [Architecture Diagrams](docs/architecture/ARCHITECTURE_DIAGRAMS.md) | System diagrams |
 | [Crate Guide](docs/architecture/CRATE_GUIDE.md) | Crate responsibilities |
-| [Copilot Instructions](.github/copilot-instructions.md) | AI coding guidelines |
+| [Sync Architecture](docs/architecture/SYNC_ARCHITECTURE.md) | Store hub, election, CRDT sync |
+| [Running the sync modes](docs/RUNNING_SYNC_MODES.md) | Bring up a multi-device store |
 
 ---
 

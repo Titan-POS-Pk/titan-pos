@@ -163,3 +163,10 @@ dist-ssr/
 *.ipr
 .project
 .settings/
+# =============================================================================
+# AI assistant instruction files
+# =============================================================================
+# Editor/agent configuration, kept locally but not part of the project.
+CLAUDE.md
+.context/
+.github/copilot-instructions.md
