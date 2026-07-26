@@ -31,6 +31,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # sqlx::query_as! verifies SQL at compile time. Offline mode makes it verify
+  # against the committed .sqlx/ cache instead of a live database, so no job
+  # needs to provision or migrate one. Regenerate the cache with
+  # `cargo sqlx prepare --workspace -- --all-targets` when a query changes; a
+  # stale cache fails the build rather than passing silently.
+  SQLX_OFFLINE: true
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
@@ -64,8 +70,6 @@ jobs:
 
       - name: Run cargo check
         run: cargo check --workspace --all-targets
-        env:
-          DATABASE_URL: sqlite:./data/titan.db
 
   test:
     name: Cargo Test
@@ -93,9 +97,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run tests
-        run: cargo test --workspace --lib
-        env:
-          DATABASE_URL: sqlite:./data/titan.db
+        run: cargo test --workspace
 
   clippy:
     name: Clippy Lint
@@ -126,8 +128,6 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-        env:
-          DATABASE_URL: sqlite:./data/titan.db
 
   fmt:
     name: Cargo Format

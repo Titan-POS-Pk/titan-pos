@@ -1,0 +1,80 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT \n                id,\n                sale_id,\n                product_id,\n                sku_snapshot,\n                name_snapshot,\n                unit_price_cents,\n                quantity,\n                line_total_cents,\n                tax_cents,\n                discount_cents,\n                created_at as \"created_at: chrono::DateTime<Utc>\"\n            FROM sale_items\n            WHERE sale_id = ?1\n            ORDER BY created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "sale_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "product_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "sku_snapshot",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "name_snapshot",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "unit_price_cents",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "quantity",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "line_total_cents",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "tax_cents",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "discount_cents",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at: chrono::DateTime<Utc>",
+        "ordinal": 10,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "696db263d9b6972616497b680f2d449751195fcf8fd18121204ceae044117201"
+}

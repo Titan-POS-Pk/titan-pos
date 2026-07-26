@@ -5,8 +5,10 @@
 # =============================================================================
 # Rust
 # =============================================================================
+# Cargo.lock IS tracked. Every workspace member is a binary (the Tauri app,
+# hub-server, cloud-api), so the lockfile is what makes a build reproducible,
+# and CI's cache key hashes it.
 target/
-Cargo.lock
 **/*.rs.bk
 
 # =============================================================================
@@ -104,9 +106,11 @@ docker-compose.local.yml
 *.temp
 .cache/
 # =============================================================================
-# sqlx compile cache (used during build)
+# sqlx offline query cache
 # =============================================================================
-.sqlx/
+# .sqlx/ IS tracked. sqlx::query_as! verifies SQL against a live database at
+# compile time; the cache is what lets a checkout build without one. Regenerate
+# with `cargo sqlx prepare --workspace -- --all-targets` after changing a query.
 
 # =============================================================================
 # Python temporary files
@@ -155,7 +159,7 @@ dist-ssr/
 *.local
 
 # =============================================================================
-# IDE specific files we don't want to track
+# Local editor and tool configuration
 # =============================================================================
 .vscode/extensions.json.bak
 .idea/**/*.iml
@@ -163,10 +167,6 @@ dist-ssr/
 *.ipr
 .project
 .settings/
-# =============================================================================
-# AI assistant instruction files
-# =============================================================================
-# Editor/agent configuration, kept locally but not part of the project.
-CLAUDE.md
 .context/
 .github/copilot-instructions.md
+CLAUDE.md

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE sales SET\n                status = 'completed',\n                completed_at = ?2,\n                updated_at = ?2,\n                sync_version = sync_version + 1\n            WHERE id = ?1 AND status = 'draft'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "a85046c0f2e80e8a16dd111072900b6260c4cb8e90f4483df24a0cf9966edf5d"
+}

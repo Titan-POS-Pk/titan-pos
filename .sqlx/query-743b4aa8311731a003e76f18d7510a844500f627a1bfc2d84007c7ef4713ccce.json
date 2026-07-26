@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE products \n            SET \n                current_stock = COALESCE(current_stock, 0) + ?2,\n                updated_at = ?3,\n                sync_version = sync_version + 1\n            WHERE id = ?1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "743b4aa8311731a003e76f18d7510a844500f627a1bfc2d84007c7ef4713ccce"
+}

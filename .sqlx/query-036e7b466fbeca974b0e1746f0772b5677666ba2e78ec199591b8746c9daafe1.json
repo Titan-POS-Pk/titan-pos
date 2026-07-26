@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM sync_outbox\n            WHERE synced_at IS NOT NULL\n            AND synced_at < datetime('now', '-' || ?1 || ' days')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "036e7b466fbeca974b0e1746f0772b5677666ba2e78ec199591b8746c9daafe1"
+}

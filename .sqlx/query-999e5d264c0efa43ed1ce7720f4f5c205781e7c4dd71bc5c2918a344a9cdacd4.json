@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO inventory_deltas (\n                id, product_id, delta, delta_type, reference_id, reference_type,\n                origin_device_id, occurred_at, sequence_num, synced, created_at\n            )\n            VALUES (?1, ?2, ?3, 'sync', ?4, 'sync', ?5, ?6, ?7, 1, ?6)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "999e5d264c0efa43ed1ce7720f4f5c205781e7c4dd71bc5c2918a344a9cdacd4"
+}

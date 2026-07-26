@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE sync_outbox SET\n                attempts = attempts + 1,\n                last_error = ?2,\n                attempted_at = ?3\n            WHERE id = ?1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "3cebc6b456a87009ba9a6b23333c0a20664270e0354c52489e9f340052b1805a"
+}

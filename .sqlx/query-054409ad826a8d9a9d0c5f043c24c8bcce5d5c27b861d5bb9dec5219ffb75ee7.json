@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT \n                id,\n                tenant_id,\n                sku,\n                barcode,\n                name,\n                description,\n                price_cents,\n                cost_cents,\n                tax_rate_bps as \"tax_rate_bps: u32\",\n                track_inventory as \"track_inventory: bool\",\n                allow_negative_stock as \"allow_negative_stock: bool\",\n                current_stock,\n                is_active as \"is_active: bool\",\n                created_at as \"created_at: chrono::DateTime<Utc>\",\n                updated_at as \"updated_at: chrono::DateTime<Utc>\",\n                sync_version\n            FROM products\n            WHERE id = ?1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "tenant_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "sku",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "barcode",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "description",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "price_cents",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "cost_cents",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "tax_rate_bps: u32",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "track_inventory: bool",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "allow_negative_stock: bool",
+        "ordinal": 10,
+        "type_info": "Integer"
+      },
+      {
+        "name": "current_stock",
+        "ordinal": 11,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_active: bool",
+        "ordinal": 12,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at: chrono::DateTime<Utc>",
+        "ordinal": 13,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at: chrono::DateTime<Utc>",
+        "ordinal": 14,
+        "type_info": "Text"
+      },
+      {
+        "name": "sync_version",
+        "ordinal": 15,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "054409ad826a8d9a9d0c5f043c24c8bcce5d5c27b861d5bb9dec5219ffb75ee7"
+}

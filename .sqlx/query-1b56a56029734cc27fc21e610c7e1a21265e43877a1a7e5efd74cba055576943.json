@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT SUM(amount_cents) as \"total: i64\"\n            FROM payments\n            WHERE sale_id = ?1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "total: i64",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1b56a56029734cc27fc21e610c7e1a21265e43877a1a7e5efd74cba055576943"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE products \n            SET \n                is_active = 0,\n                updated_at = ?2,\n                sync_version = sync_version + 1\n            WHERE id = ?1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "36c308a08f49dc3a66691413bfc38b439310bc080aa907b6a99bf38e47449d18"
+}

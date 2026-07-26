@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO sale_items (\n                id, sale_id, product_id,\n                sku_snapshot, name_snapshot, unit_price_cents,\n                quantity, line_total_cents, tax_cents, discount_cents,\n                created_at\n            ) VALUES (\n                ?1, ?2, ?3,\n                ?4, ?5, ?6,\n                ?7, ?8, ?9, ?10,\n                ?11\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "eb4b34bc27a31c7cfd3be5f8f8bde7452b2da672b53b8a07dd5734b6548d510a"
+}

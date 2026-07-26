@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE products SET\n                sku = ?2,\n                barcode = ?3,\n                name = ?4,\n                description = ?5,\n                price_cents = ?6,\n                cost_cents = ?7,\n                tax_rate_bps = ?8,\n                track_inventory = ?9,\n                allow_negative_stock = ?10,\n                current_stock = ?11,\n                is_active = ?12,\n                updated_at = ?13,\n                sync_version = sync_version + 1\n            WHERE id = ?1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 13
+    },
+    "nullable": []
+  },
+  "hash": "8742b32311350fa4cd2edd6a5dd57fa38b322f28c6b48ae29fee280d5c660edd"
+}

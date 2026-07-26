@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT \n                id,\n                sale_id,\n                method as \"method: titan_core::PaymentMethod\",\n                amount_cents,\n                tendered_cents,\n                change_cents,\n                reference,\n                created_at as \"created_at: chrono::DateTime<Utc>\"\n            FROM payments\n            WHERE sale_id = ?1\n            ORDER BY created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "sale_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "method: titan_core::PaymentMethod",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "amount_cents",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "tendered_cents",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "change_cents",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "reference",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at: chrono::DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "da854f4e9ce102f577a90eaa663f00da50426b08e8959a0d137ecd8634aaecfd"
+}

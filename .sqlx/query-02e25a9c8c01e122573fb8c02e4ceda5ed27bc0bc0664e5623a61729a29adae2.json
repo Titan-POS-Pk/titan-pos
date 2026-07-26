@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO sync_outbox (\n                id, tenant_id, entity_type, entity_id, payload,\n                attempts, last_error, created_at, attempted_at, synced_at\n            ) VALUES (\n                ?1, ?2, ?3, ?4, ?5,\n                ?6, ?7, ?8, ?9, ?10\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "02e25a9c8c01e122573fb8c02e4ceda5ed27bc0bc0664e5623a61729a29adae2"
+}
