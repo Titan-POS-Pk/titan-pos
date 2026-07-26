@@ -35,17 +35,23 @@ xcode-select --install
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/titan-pos.git
+git clone https://github.com/Titan-POS-Pk/titan-pos.git
 cd titan-pos
 
-# Install Rust dependencies
-cargo build
-
-# Install Node dependencies
+# Install Node dependencies and build the frontend.
+# This has to happen before any cargo build: tauri_build checks that
+# `frontendDist` exists, and the Rust side will not compile until it does.
+cd apps/desktop
 pnpm install
+pnpm build
+
+# Build the Rust workspace. No database setup is needed — sqlx verifies
+# queries against the committed .sqlx/ cache.
+cd ../..
+cargo build --workspace
 
 # Verify setup
-pnpm dev
+cd apps/desktop && pnpm tauri dev
 ```
 
 ---
@@ -87,7 +93,10 @@ test(core): add tax calculation edge cases
 
 1. Create feature branch from `main`
 2. Make changes with tests
-3. Run `pnpm lint && pnpm test`
+3. Run what CI runs: `cargo test --workspace`,
+   `cargo clippy --workspace --all-targets -- -D warnings`,
+   `cargo fmt --all -- --check`, and `pnpm check && pnpm lint` in
+   `apps/desktop`
 4. Open PR with description template
 5. Request review (see review requirements below)
 6. Squash merge after approval
@@ -155,9 +164,11 @@ cargo clippy -- -D warnings
 
 #### Formatting & Linting
 ```bash
-# Format and lint
-pnpm lint
-pnpm lint:fix
+cd apps/desktop
+
+pnpm check     # tsc --noEmit
+pnpm lint      # eslint, --max-warnings 0
+pnpm format    # prettier --write
 ```
 
 #### Must-Follow Rules
@@ -205,21 +216,25 @@ cargo test -p titan-core
 # With output
 cargo test -- --nocapture
 
-# TypeScript tests
-pnpm test
-
-# E2E tests (requires built app)
-pnpm test:e2e
+# Integration tests that need a live cloud-api or a provisioned database
+cargo test --workspace -- --ignored
 ```
 
-### Test Coverage Requirements
+There is no frontend test runner yet. `apps/desktop` has `check` (tsc) and
+`lint` (eslint) only, and those are what CI runs; a `pnpm test` script does
+not exist. Frontend behaviour is currently covered only through the Rust
+command layer.
+
+### Test Coverage Targets
+
+Targets, not gates — nothing in CI enforces a coverage number today.
 
 | Component | Unit | Integration |
 |-----------|------|-------------|
 | titan-core | 90%+ | N/A |
 | titan-db | 50%+ | 80%+ |
 | titan-sync | 50%+ | 80%+ |
-| Frontend | 50%+ | Key flows |
+| Frontend | none yet | none yet |
 
 ### Writing Tests
 

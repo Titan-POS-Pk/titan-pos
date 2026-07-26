@@ -405,7 +405,7 @@ spec:
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-org/titan-pos.git
+git clone https://github.com/Titan-POS-Pk/titan-pos.git
 cd titan-pos
 
 # 2. Start Docker services

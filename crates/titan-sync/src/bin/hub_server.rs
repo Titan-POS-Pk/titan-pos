@@ -495,7 +495,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("");
     info!("Connect POS terminals with:");
     info!(
-        "  TITAN_SYNC_MODE=secondary TITAN_HUB_URL=\"ws://{}:{}/ws\" pnpm tauri dev",
+        "  cd apps/desktop && TITAN_SYNC_MODE=secondary TITAN_HUB_URL=\"ws://{}:{}/ws\" pnpm tauri dev",
         if config.bind_addr == "0.0.0.0" {
             "<YOUR_IP>"
         } else {
