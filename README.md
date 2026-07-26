@@ -1,24 +1,77 @@
 # Titan POS
 
-> **Offline-First Point of Sale System**  
-> Built with Rust + Tauri v2 + SolidJS + SQLite
+> Offline-first point of sale. Rust + Tauri v2 + SolidJS + SQLite.
 
-[![Build Status](https://img.shields.io/badge/build-pending-yellow)]()
-[![License](https://img.shields.io/badge/license-proprietary-red)]()
+A till has to keep selling when the network is gone, and the money has to
+still be right when it comes back. Local SQLite is the source of truth; sync
+is a background side-effect, never a precondition for a sale.
 
 ---
 
-## Overview
+## Three problems this repo actually solved
 
-Titan POS is a mission-critical Point of Sale system designed for **offline-first operation**. The local SQLite database is the single source of truth. Cloud sync is a background side-effect, not a prerequisite.
+**Tax rounding was biased against refunds.** `calculate_tax` documented
+banker's rounding — round half to even — and implemented
+`(cents * bps + 5000) / 10000`, which is round half *up*. Rust's integer
+division truncates toward zero rather than flooring, so the bias ran in
+opposite directions by sign. A $10.00 sale at 8.25% is exactly 82.5¢: the
+sale charged 83¢, the matching refund returned 82¢. Every tie leaked a cent
+into the tax account. Fixed with Euclidean division so the tie test is
+sign-symmetric, and sign symmetry is now a property test over 2,000 amounts
+rather than an example.
+→ [`crates/titan-core/src/money.rs`](crates/titan-core/src/money.rs)
 
-### Key Features (v0.1 - Logical Core)
+**The split-brain guard could never fire.** The election waits a randomized
+150–300ms and then checks whether it is still a Candidate before promoting
+itself — a competing claim arriving in that window is supposed to demote it.
+The wait was a bare `sleep().await` inside the service's own `select!` arm,
+which starved the command channel for its full duration. Heartbeats queued
+behind the sleep and were drained only after the decision, so the check was
+unconditionally true and two devices that campaigned together both became
+PRIMARY for the same store. Both that window and the post-election grace
+period now drain commands while they wait.
+→ [`crates/titan-sync/src/election.rs`](crates/titan-sync/src/election.rs)
 
-- ✅ **Offline-First**: Operates indefinitely without internet
-- ✅ **Integer Math**: All monetary calculations in cents (no floating point)
-- ✅ **Dual-Key Identity**: UUID (system) + SKU (business)
-- ✅ **Sub-10ms Search**: Full-text search across 50,000+ products
-- ✅ **CRDT Sync**: Conflict-free inventory synchronization
+**Searching by SKU threw.** The FTS5 query was built as
+`format!("{}*", input)`, but the MATCH right-hand side is a query language,
+not a literal. Every SKU here looks like `BEV-COC-001`, and a bare `-` is a
+column-filter operator, so the commonest search a cashier performs returned
+`Error: no such column: COC` straight out of SQLite.
+→ [`crates/titan-db/src/repository/product.rs`](crates/titan-db/src/repository/product.rs)
+
+### Search latency, measured
+
+50,000 products, WAL mode, SQLite 3.x on an M-series Mac. 500 iterations per
+query in a single connection, process startup subtracted:
+
+| Query | Rows matched | Median |
+|-------|--------------|--------|
+| SKU prefix `BEV` | 200 | 0.34 ms |
+| Full product name | 16 | 0.57 ms |
+| Barcode prefix | 1,000 | 1.02 ms |
+| Term matching 12% of catalogue | 6,135 | 27.7 ms |
+
+Cost tracks the number of matches, not the catalogue size, because
+`ORDER BY rank` scores every hit before the `LIMIT` applies. Sub-10ms is
+comfortable for selective queries — SKU, barcode, product name — which is
+what a lane actually types. A deliberately unselective term is not, and that
+row is in the table for the same reason.
+
+Note the seed generator caps at ~1,000 products regardless of `--count`; the
+50k figures above come from synthesized rows, not from `cargo run --bin seed`.
+
+### Design commitments
+
+- **Integer money.** Every amount is `i64` cents. There is no
+  `Money::from_float`. Operators panic on overflow rather than wrapping,
+  because a wrapped total is a wrong total that looks plausible.
+- **Dual-key identity.** UUID for relations, SKU for humans. The SKU can
+  change; the UUID cannot.
+- **Offline-first.** Every operation completes against local SQLite. Sync
+  reads an outbox afterwards.
+- **CRDT-shaped sync.** Inventory moves as deltas (`change: -3`), never as
+  absolutes (`stock = 7`), so two tills selling the same item concurrently
+  converge instead of overwriting each other.
 
 ### Tech Stack
 
@@ -99,49 +152,12 @@ pnpm tauri build
 
 ---
 
-## Core Principles
-
-### 1. Integer Math Only
-```rust
-// ✅ Correct: Use cents
-let price = Money::from_cents(1099); // $10.99
-
-// ❌ Wrong: Never use floats
-let price = 10.99; // FORBIDDEN
-```
-
-### 2. Dual-Key Identity
-```sql
--- Every entity has both:
-id TEXT PRIMARY KEY,  -- UUID v4 (immutable, for FK)
-sku TEXT UNIQUE,      -- Business ID (mutable, for humans)
-```
-
-### 3. Local-First
-```rust
-// All operations complete locally first
-let sale = create_sale(&local_db, cart).await?;
-
-// Sync is a background side-effect
-sync_outbox.queue(sale).await;
-```
-
-### 4. CRDT for Sync
-```rust
-// Send deltas, not absolutes
-sync_message = InventoryDelta { 
-    product_id: "...", 
-    change: -3  // Not "stock = 7"
-};
-```
-
----
-
 ## Roadmap
 
-| Version | Focus | Target |
+| Version | Focus | Status |
 |---------|-------|--------|
-| v0.1 | Logical Core | Q1 2026 |
+| v0.1 | Logical core: money, cart, FTS search, local persistence | Shipped |
+| v0.2 | Store sync: hub election, CRDT inventory, store aggregation | Shipped |
 | v0.5 | Hardware I/O | Q2 2026 |
 | v1.0 | Integrated Payments | Q3 2026 |
 | v1.5 | Multi-Store | Q4 2026 |
