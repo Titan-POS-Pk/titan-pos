@@ -1,6 +1,6 @@
 # Titan POS v0.2 - Development Progress
 
-> **Status**: � Milestone 3 Complete  
+> **Status**: 🟢 Milestone 4 Complete - v0.2 Ready for Testing  
 > **Target**: v0.2 "Store Sync & Auto-Hub"  
 > **Last Updated**: February 2, 2026
 
@@ -150,16 +150,72 @@ Key decisions (from `docs/architecture/SYNC_ARCHITECTURE.md` + your confirmation
 
 ---
 
-### Milestone 4: Multi-Store Readiness ⬜
+### Milestone 4: Multi-Store Readiness ✅
 **Goal**: Scale from one store to many under one tenant
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Store identity configuration | ⬜ | `store_id` added to config |
-| Inventory deltas table | ✅ | Already in PostgreSQL schema |
-| Sync protocol messages | ✅ | Already in proto/titan_sync.proto |
-| Store-level aggregation | ⬜ | Inventory + sales aggregation |
-| Failover recovery | ⬜ | Re-elect primary if hub down |
+| Store identity configuration | ✅ | `store_id` added to SyncConfig |
+| Aggregation settings | ✅ | AggregationSettings with configurable batch interval |
+| Cross-store visibility config | ✅ | Products shared, inventory/sales isolated (configurable) |
+| Failover settings | ✅ | FailoverSettings with grace period |
+| Store-level database | ✅ | Separate `store_aggregates.db` SQLite |
+| Store database module | ✅ | Full CRUD for aggregation tables |
+| Store aggregator service | ✅ | Real-time inventory + batched sales (1-min default) |
+| DEMOTE protocol message | ✅ | Split-brain prevention via fencing |
+| Election grace period | ✅ | 5-second grace period after becoming PRIMARY |
+| Multi-instance test script | ✅ | Test two POS instances on single machine |
+
+#### Files Created/Updated
+| File | Purpose |
+|------|---------|
+| `crates/titan-sync/src/config.rs` | Added AggregationSettings, CrossStoreVisibility, FailoverSettings |
+| `crates/titan-sync/src/protocol.rs` | Added Demote, AggregationSummary, SalesSummary, PaymentSummary messages |
+| `migrations/sqlite/004_store_aggregates_schema.sql` | Store-level aggregation database schema (~350 lines) |
+| `crates/titan-sync/src/store_db.rs` | StoreDatabase module for store_aggregates.db (~600 lines) |
+| `crates/titan-sync/src/store_aggregator.rs` | StoreAggregator service for real-time + batched aggregation (~500 lines) |
+| `crates/titan-sync/src/election.rs` | Updated with grace period and DEMOTE handling |
+| `crates/titan-sync/src/lib.rs` | Added module exports for store_db, store_aggregator |
+| `scripts/test-multi-instance.sh` | Multi-instance test script for single-machine testing |
+
+#### Key Architecture Decisions
+- **Store Database**: Separate SQLite (`store_aggregates.db`) from POS database (`titan.db`)
+- **Sales Aggregation**: Batched every 60 seconds (configurable via `sales_batch_interval_secs`)
+- **Inventory Aggregation**: Real-time (immediate on delta)
+- **Failover Grace Period**: 5 seconds before new PRIMARY takes over
+- **Split-Brain Prevention**: Fencing tokens + DEMOTE message to old primary
+- **Cross-Store Visibility**: Products shared by default, inventory/sales isolated (configurable)
+- **Data Retention**: Snapshots 90 days, summaries 365 days (configurable)
+
+#### Testing Notes
+Run `./scripts/test-multi-instance.sh` to set up two POS instances on single machine:
+- **POS1**: PRIMARY on port 8765, data in `data/pos1/`
+- **POS2**: SECONDARY on port 8766, connects to POS1, data in `data/pos2/`
+
+---
+
+## v0.2 Complete! 🎉
+
+All four milestones for v0.2 "Store Sync & Auto-Hub" are now complete:
+
+1. **Milestone 1**: Sync Agent Foundation ✅
+2. **Milestone 2**: Store Hub (Auto-Elected Primary) ✅
+3. **Milestone 3**: Cloud Uplink (Primary → Cloud) ✅
+4. **Milestone 4**: Multi-Store Readiness ✅
+
+### What's Working
+- Multi-device sync within a store via WebSocket
+- Auto-elected Store Server Hub with leader election
+- gRPC cloud uplink for hub-to-cloud sync
+- Store-level data aggregation with separate database
+- Split-brain prevention via fencing tokens
+- Configurable failover and aggregation settings
+
+### Next Steps (v0.3 Planning)
+- Secure WebSocket (wss://) for LAN sync
+- Hardware integration (receipt printers, barcode scanners)
+- Real payment processing integration
+- Mobile companion app
 
 ---
 
