@@ -65,7 +65,6 @@ pub enum SyncMessage {
     // =========================================================================
     // Handshake Messages
     // =========================================================================
-
     /// Initial connection message from SECONDARY to PRIMARY.
     Hello(HelloPayload),
 
@@ -75,7 +74,6 @@ pub enum SyncMessage {
     // =========================================================================
     // Outbox Sync Messages
     // =========================================================================
-
     /// Batch of outbox entries for upload.
     OutboxBatch(OutboxBatch),
 
@@ -85,7 +83,6 @@ pub enum SyncMessage {
     // =========================================================================
     // Inventory Sync Messages (Milestone 2)
     // =========================================================================
-
     /// Inventory delta from SECONDARY (quantity change, not absolute value).
     InventoryDelta(InventoryDelta),
 
@@ -95,7 +92,6 @@ pub enum SyncMessage {
     // =========================================================================
     // Hub Discovery & Election Messages (Milestone 2)
     // =========================================================================
-
     /// Heartbeat from PRIMARY to announce its presence.
     Heartbeat(HeartbeatPayload),
 
@@ -118,7 +114,6 @@ pub enum SyncMessage {
     // =========================================================================
     // Entity Update Messages
     // =========================================================================
-
     /// Entity update pushed from PRIMARY to SECONDARY.
     EntityUpdate(EntityUpdate),
 
@@ -128,7 +123,6 @@ pub enum SyncMessage {
     // =========================================================================
     // Keepalive Messages
     // =========================================================================
-
     /// Ping for keepalive.
     Ping { timestamp: String },
 
@@ -141,14 +135,12 @@ pub enum SyncMessage {
     // =========================================================================
     // Error Messages
     // =========================================================================
-
     /// Error message.
     Error { code: String, message: String },
 
     // =========================================================================
     // Cursor Messages
     // =========================================================================
-
     /// Request current sync cursor position.
     CursorRequest { device_id: String },
 
@@ -293,7 +285,7 @@ pub struct FailedEntry {
 /// ```text
 /// POS #1 sells 2 items:  InventoryDelta { delta_quantity: -2 }
 /// POS #2 sells 1 item:   InventoryDelta { delta_quantity: -1 }
-/// 
+///
 /// Hub aggregates: -2 + -1 = -3
 /// Broadcasts:     InventoryUpdate { delta_quantity: -3 }
 /// ```
@@ -639,7 +631,13 @@ impl SyncMessage {
     }
 
     /// Creates a Heartbeat message.
-    pub fn heartbeat(device_id: &str, term: u64, hub_url: &str, priority: u8, connected_count: usize) -> Self {
+    pub fn heartbeat(
+        device_id: &str,
+        term: u64,
+        hub_url: &str,
+        priority: u8,
+        connected_count: usize,
+    ) -> Self {
         SyncMessage::Heartbeat(HeartbeatPayload {
             device_id: device_id.to_string(),
             election_term: term,

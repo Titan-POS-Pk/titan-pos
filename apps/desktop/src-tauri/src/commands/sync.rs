@@ -25,9 +25,7 @@ use crate::state::{SyncState, SyncStatusDto};
 /// # Returns
 /// `SyncStatusDto` containing connection state, mode, pending count, etc.
 #[tauri::command]
-pub async fn get_sync_status(
-    sync: State<'_, SyncState>,
-) -> Result<SyncStatusDto, ApiError> {
+pub async fn get_sync_status(sync: State<'_, SyncState>) -> Result<SyncStatusDto, ApiError> {
     Ok(sync.get_status())
 }
 
@@ -59,9 +57,7 @@ pub struct SyncConfigDto {
 /// # Returns
 /// `SyncConfigDto` containing the current sync configuration.
 #[tauri::command]
-pub async fn get_sync_config(
-    sync: State<'_, SyncState>,
-) -> Result<SyncConfigDto, ApiError> {
+pub async fn get_sync_config(sync: State<'_, SyncState>) -> Result<SyncConfigDto, ApiError> {
     let config = sync.get_config();
     let is_running = sync.is_running();
 
@@ -134,8 +130,6 @@ pub async fn set_sync_mode(
 /// # Returns
 /// Number of pending outbox entries.
 #[tauri::command]
-pub async fn get_pending_sync_count(
-    sync: State<'_, SyncState>,
-) -> Result<i64, ApiError> {
+pub async fn get_pending_sync_count(sync: State<'_, SyncState>) -> Result<i64, ApiError> {
     Ok(sync.get_status().pending_outbox_count)
 }

@@ -13,10 +13,8 @@ use tonic::{Request, Response, Status};
 use tracing::info;
 
 use crate::proto::{
-    health_service_server::HealthService,
-    health_check_response::ServingStatus,
-    HealthCheckRequest, HealthCheckResponse,
-    Timestamp as ProtoTimestamp,
+    health_check_response::ServingStatus, health_service_server::HealthService, HealthCheckRequest,
+    HealthCheckResponse, Timestamp as ProtoTimestamp,
 };
 use crate::AppState;
 
@@ -51,7 +49,10 @@ impl HealthServiceImpl {
             }
             _ => {
                 // Unknown service
-                (ServingStatus::Unknown, format!("Unknown service: {}", service))
+                (
+                    ServingStatus::Unknown,
+                    format!("Unknown service: {}", service),
+                )
             }
         };
 
@@ -69,7 +70,10 @@ impl HealthServiceImpl {
         // Check database
         let db_health = self.check_database_health().await;
         if db_health.0 != ServingStatus::Serving {
-            return (ServingStatus::NotServing, format!("Database unhealthy: {}", db_health.1));
+            return (
+                ServingStatus::NotServing,
+                format!("Database unhealthy: {}", db_health.1),
+            );
         }
 
         // Check Redis (optional)
@@ -77,11 +81,17 @@ impl HealthServiceImpl {
             let redis_health = self.check_redis_health().await;
             if redis_health.0 != ServingStatus::Serving {
                 // Redis is optional, so we're degraded but not down
-                return (ServingStatus::Serving, format!("Degraded: Redis unhealthy - {}", redis_health.1));
+                return (
+                    ServingStatus::Serving,
+                    format!("Degraded: Redis unhealthy - {}", redis_health.1),
+                );
             }
         }
 
-        (ServingStatus::Serving, "All systems operational".to_string())
+        (
+            ServingStatus::Serving,
+            "All systems operational".to_string(),
+        )
     }
 
     /// Check database health.
@@ -98,17 +108,19 @@ impl HealthServiceImpl {
     /// Check Redis health.
     async fn check_redis_health(&self) -> (ServingStatus, String) {
         match &self.state.redis {
-            Some(client) => {
-                match client.get_connection() {
-                    Ok(mut conn) => {
-                        match redis::cmd("PING").query::<String>(&mut conn) {
-                            Ok(_) => (ServingStatus::Serving, "Redis connected".to_string()),
-                            Err(e) => (ServingStatus::NotServing, format!("Redis ping failed: {}", e)),
-                        }
-                    }
-                    Err(e) => (ServingStatus::NotServing, format!("Redis connection failed: {}", e)),
-                }
-            }
+            Some(client) => match client.get_connection() {
+                Ok(mut conn) => match redis::cmd("PING").query::<String>(&mut conn) {
+                    Ok(_) => (ServingStatus::Serving, "Redis connected".to_string()),
+                    Err(e) => (
+                        ServingStatus::NotServing,
+                        format!("Redis ping failed: {}", e),
+                    ),
+                },
+                Err(e) => (
+                    ServingStatus::NotServing,
+                    format!("Redis connection failed: {}", e),
+                ),
+            },
             None => (ServingStatus::Unknown, "Redis not configured".to_string()),
         }
     }
@@ -147,9 +159,9 @@ impl HealthService for HealthServiceImpl {
 
             loop {
                 check_interval.tick().await;
-                
+
                 let response = health_service.check_health(&service).await;
-                
+
                 if tx.send(Ok(response)).await.is_err() {
                     // Client disconnected
                     break;

@@ -34,14 +34,11 @@
 use crate::cloud_auth::{CloudAuth, CloudAuthConfig};
 use crate::error::{SyncError, SyncResult};
 use crate::proto::{
-    sync_service_client::SyncServiceClient,
-    config_service_client::ConfigServiceClient,
-    health_service_client::HealthServiceClient,
-    health_check_response::ServingStatus,
-    sync_entity, SyncEntity, GetPendingUpdatesRequest, UploadBatchRequest,
-    UploadBatchResponse, GetStoreConfigRequest, GetStoreConfigResponse,
-    HealthCheckRequest, Money, Timestamp, Sale, SaleItem, Payment,
-    EntityUpdate,
+    config_service_client::ConfigServiceClient, health_check_response::ServingStatus,
+    health_service_client::HealthServiceClient, sync_entity,
+    sync_service_client::SyncServiceClient, EntityUpdate, GetPendingUpdatesRequest,
+    GetStoreConfigRequest, GetStoreConfigResponse, HealthCheckRequest, Money, Payment, Sale,
+    SaleItem, SyncEntity, Timestamp, UploadBatchRequest, UploadBatchResponse,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -181,9 +178,8 @@ impl CloudUplink {
         let channel = self.channel()?;
         let token = self.auth.get_access_token().await?;
 
-        let mut client = SyncServiceClient::with_interceptor(
-            channel,
-            move |mut req: tonic::Request<()>| {
+        let mut client =
+            SyncServiceClient::with_interceptor(channel, move |mut req: tonic::Request<()>| {
                 let token = token.clone();
                 req.metadata_mut().insert(
                     "authorization",
@@ -192,8 +188,7 @@ impl CloudUplink {
                         .expect("valid header value"),
                 );
                 Ok(req)
-            },
-        );
+            });
 
         let batch_id = uuid::Uuid::new_v4().to_string();
         let entity_count = entities.len();
@@ -231,9 +226,8 @@ impl CloudUplink {
         let channel = self.channel()?;
         let token = self.auth.get_access_token().await?;
 
-        let mut client = SyncServiceClient::with_interceptor(
-            channel,
-            move |mut req: tonic::Request<()>| {
+        let mut client =
+            SyncServiceClient::with_interceptor(channel, move |mut req: tonic::Request<()>| {
                 let token = token.clone();
                 req.metadata_mut().insert(
                     "authorization",
@@ -242,8 +236,7 @@ impl CloudUplink {
                         .expect("valid header value"),
                 );
                 Ok(req)
-            },
-        );
+            });
 
         info!("Downloading pending updates from cloud");
 
@@ -284,9 +277,8 @@ impl CloudUplink {
         let channel = self.channel()?;
         let token = self.auth.get_access_token().await?;
 
-        let mut client = ConfigServiceClient::with_interceptor(
-            channel,
-            move |mut req: tonic::Request<()>| {
+        let mut client =
+            ConfigServiceClient::with_interceptor(channel, move |mut req: tonic::Request<()>| {
                 let token = token.clone();
                 req.metadata_mut().insert(
                     "authorization",
@@ -295,8 +287,7 @@ impl CloudUplink {
                         .expect("valid header value"),
                 );
                 Ok(req)
-            },
-        );
+            });
 
         let request = GetStoreConfigRequest {
             store_id: self.config.store_id.clone(),

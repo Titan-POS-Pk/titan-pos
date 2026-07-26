@@ -98,17 +98,14 @@ pub fn get_device_info(sync: State<'_, SyncState>) -> DeviceInfoDto {
     }
 
     // Fall back to environment variables or defaults
-    let device_id = std::env::var("TITAN_DEVICE_ID")
-        .unwrap_or_else(|_| "local-dev".to_string());
-    
+    let device_id = std::env::var("TITAN_DEVICE_ID").unwrap_or_else(|_| "local-dev".to_string());
+
     let device_name = std::env::var("TITAN_DEVICE_NAME")
         .unwrap_or_else(|_| format!("POS-{}", &device_id[..device_id.len().min(8)]));
-    
-    let sync_mode = std::env::var("TITAN_SYNC_MODE")
-        .unwrap_or_else(|_| "primary".to_string());
-    
-    let store_id = std::env::var("TITAN_STORE_ID")
-        .unwrap_or_else(|_| "default".to_string());
+
+    let sync_mode = std::env::var("TITAN_SYNC_MODE").unwrap_or_else(|_| "primary".to_string());
+
+    let store_id = std::env::var("TITAN_STORE_ID").unwrap_or_else(|_| "default".to_string());
 
     DeviceInfoDto {
         device_id,

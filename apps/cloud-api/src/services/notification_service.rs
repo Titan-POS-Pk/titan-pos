@@ -14,9 +14,8 @@ use tracing::{debug, info, warn};
 
 use crate::auth::{extract_bearer_token, JwtManager};
 use crate::proto::{
-    notification_service_server::NotificationService,
-    HeartbeatNotification, Notification, SubscriptionMessage,
-    Timestamp as ProtoTimestamp,
+    notification_service_server::NotificationService, HeartbeatNotification, Notification,
+    SubscriptionMessage, Timestamp as ProtoTimestamp,
 };
 use crate::AppState;
 
@@ -37,12 +36,15 @@ impl NotificationServiceImpl {
             state.config.jwt_access_lifetime_secs,
             state.config.jwt_refresh_lifetime_secs,
         );
-        
+
         NotificationServiceImpl { state, jwt_manager }
     }
 
     /// Authenticate a subscription request.
-    fn authenticate_stream(&self, request: &Request<Streaming<SubscriptionMessage>>) -> Result<String, Status> {
+    fn authenticate_stream(
+        &self,
+        request: &Request<Streaming<SubscriptionMessage>>,
+    ) -> Result<String, Status> {
         let auth_header = request
             .metadata()
             .get("authorization")
@@ -52,7 +54,8 @@ impl NotificationServiceImpl {
         let token = extract_bearer_token(auth_header)
             .ok_or_else(|| Status::unauthenticated("Invalid authorization header"))?;
 
-        let claims = self.jwt_manager
+        let claims = self
+            .jwt_manager
             .validate_access_token(token)
             .map_err(|e| Status::unauthenticated(e.to_string()))?;
 

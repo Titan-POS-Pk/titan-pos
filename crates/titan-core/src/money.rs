@@ -709,9 +709,15 @@ mod tests {
     fn test_percentage_discount_uses_same_rounding_as_tax() {
         // 5% of 10 cents = exactly 0.5 → 0 under half-to-even, so nothing
         // comes off. Under the old half-up rule this took a cent.
-        assert_eq!(Money::from_cents(10).apply_percentage_discount(500).cents(), 10);
+        assert_eq!(
+            Money::from_cents(10).apply_percentage_discount(500).cents(),
+            10
+        );
         // 5% of 30 cents = exactly 1.5 → 2.
-        assert_eq!(Money::from_cents(30).apply_percentage_discount(500).cents(), 28);
+        assert_eq!(
+            Money::from_cents(30).apply_percentage_discount(500).cents(),
+            28
+        );
     }
 
     #[test]
@@ -719,7 +725,12 @@ mod tests {
         for cents in 1..=500i64 {
             let sale = Money::from_cents(cents).apply_percentage_discount(1234);
             let refund = Money::from_cents(-cents).apply_percentage_discount(1234);
-            assert_eq!(sale.cents(), -refund.cents(), "asymmetric at {} cents", cents);
+            assert_eq!(
+                sale.cents(),
+                -refund.cents(),
+                "asymmetric at {} cents",
+                cents
+            );
         }
     }
 

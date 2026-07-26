@@ -51,19 +51,17 @@ impl CloudConfig {
                 .parse()
                 .map_err(|_| ConfigError::InvalidValue("GRPC_PORT".to_string()))?,
 
-            database_url: env::var("DATABASE_URL")
-                .unwrap_or_else(|_| {
-                    "postgres://titan:titan_dev_password@localhost:5432/titan_pos".to_string()
-                }),
+            database_url: env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgres://titan:titan_dev_password@localhost:5432/titan_pos".to_string()
+            }),
 
             redis_url: env::var("REDIS_URL").ok(),
 
-            jwt_secret: env::var("JWT_SECRET")
-                .unwrap_or_else(|_| {
-                    // Generate a random secret for development
-                    // In production, this MUST be set via environment variable
-                    "titan-cloud-dev-secret-change-in-production".to_string()
-                }),
+            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| {
+                // Generate a random secret for development
+                // In production, this MUST be set via environment variable
+                "titan-cloud-dev-secret-change-in-production".to_string()
+            }),
 
             jwt_access_lifetime_secs: env::var("JWT_ACCESS_LIFETIME_SECS")
                 .unwrap_or_else(|_| "3600".to_string()) // 1 hour
@@ -96,9 +94,7 @@ impl CloudConfig {
         };
 
         // Validate TLS configuration
-        if config.tls_enabled
-            && (config.tls_cert_path.is_none() || config.tls_key_path.is_none())
-        {
+        if config.tls_enabled && (config.tls_cert_path.is_none() || config.tls_key_path.is_none()) {
             return Err(ConfigError::MissingTlsConfig);
         }
 

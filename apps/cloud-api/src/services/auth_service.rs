@@ -9,10 +9,8 @@ use tracing::{info, warn};
 
 use crate::auth::JwtManager;
 use crate::proto::{
-    auth_service_server::AuthService,
-    ExchangeTokenRequest, ExchangeTokenResponse,
-    RefreshTokenRequest, RefreshTokenResponse,
-    RevokeTokenRequest, RevokeTokenResponse,
+    auth_service_server::AuthService, ExchangeTokenRequest, ExchangeTokenResponse,
+    RefreshTokenRequest, RefreshTokenResponse, RevokeTokenRequest, RevokeTokenResponse,
 };
 use crate::AppState;
 
@@ -30,7 +28,7 @@ impl AuthServiceImpl {
             state.config.jwt_access_lifetime_secs,
             state.config.jwt_refresh_lifetime_secs,
         );
-        
+
         AuthServiceImpl { state, jwt_manager }
     }
 }
@@ -43,7 +41,7 @@ impl AuthService for AuthServiceImpl {
         request: Request<ExchangeTokenRequest>,
     ) -> Result<Response<ExchangeTokenResponse>, Status> {
         let req = request.into_inner();
-        
+
         info!(
             store_id = %req.store_id,
             tenant_id = %req.tenant_id,
@@ -52,7 +50,9 @@ impl AuthService for AuthServiceImpl {
         );
 
         // Validate the API key
-        let store = self.state.db
+        let store = self
+            .state
+            .db
             .validate_api_key(&req.api_key, &req.store_id, &req.tenant_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -69,11 +69,13 @@ impl AuthService for AuthServiceImpl {
         };
 
         // Generate tokens
-        let access_token = self.jwt_manager
+        let access_token = self
+            .jwt_manager
             .generate_access_token(&store.id, &store.tenant_id, &req.device_id)
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let refresh_token = self.jwt_manager
+        let refresh_token = self
+            .jwt_manager
             .generate_refresh_token(&store.id, &store.tenant_id, &req.device_id)
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -99,16 +101,19 @@ impl AuthService for AuthServiceImpl {
         let req = request.into_inner();
 
         // Validate the refresh token
-        let claims = self.jwt_manager
+        let claims = self
+            .jwt_manager
             .validate_refresh_token(&req.refresh_token)
             .map_err(|e| Status::unauthenticated(e.to_string()))?;
 
         // Generate new tokens
-        let access_token = self.jwt_manager
+        let access_token = self
+            .jwt_manager
             .generate_access_token(&claims.sub, &claims.tenant_id, &claims.device_id)
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let refresh_token = self.jwt_manager
+        let refresh_token = self
+            .jwt_manager
             .generate_refresh_token(&claims.sub, &claims.tenant_id, &claims.device_id)
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -137,7 +142,8 @@ impl AuthService for AuthServiceImpl {
         info!("Token revocation requested");
 
         // Validate the token exists and is valid
-        let _ = self.jwt_manager
+        let _ = self
+            .jwt_manager
             .validate_token(&req.token)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 

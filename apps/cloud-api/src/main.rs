@@ -15,12 +15,12 @@
 //! └─────────────────────────────────────────────────────────────────────────┘
 //! ```
 
-mod proto;
+mod auth;
 mod config;
 mod db;
 mod error;
+mod proto;
 mod services;
-mod auth;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -31,19 +31,15 @@ use tracing_subscriber::FmtSubscriber;
 
 use crate::config::CloudConfig;
 use crate::db::Database;
-use crate::services::{
-    auth_service::AuthServiceImpl,
-    sync_service::SyncServiceImpl,
-    config_service::ConfigServiceImpl,
-    notification_service::NotificationServiceImpl,
-    health_service::HealthServiceImpl,
-};
 use crate::proto::{
-    auth_service_server::AuthServiceServer,
-    sync_service_server::SyncServiceServer,
-    config_service_server::ConfigServiceServer,
-    notification_service_server::NotificationServiceServer,
+    auth_service_server::AuthServiceServer, config_service_server::ConfigServiceServer,
     health_service_server::HealthServiceServer,
+    notification_service_server::NotificationServiceServer, sync_service_server::SyncServiceServer,
+};
+use crate::services::{
+    auth_service::AuthServiceImpl, config_service::ConfigServiceImpl,
+    health_service::HealthServiceImpl, notification_service::NotificationServiceImpl,
+    sync_service::SyncServiceImpl,
 };
 
 #[tokio::main]
@@ -101,7 +97,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let auth_service = AuthServiceServer::new(AuthServiceImpl::new(state.clone()));
     let sync_service = SyncServiceServer::new(SyncServiceImpl::new(state.clone()));
     let config_service = ConfigServiceServer::new(ConfigServiceImpl::new(state.clone()));
-    let notification_service = NotificationServiceServer::new(NotificationServiceImpl::new(state.clone()));
+    let notification_service =
+        NotificationServiceServer::new(NotificationServiceImpl::new(state.clone()));
     let health_service = HealthServiceServer::new(HealthServiceImpl::new(state.clone()));
 
     // Build server address

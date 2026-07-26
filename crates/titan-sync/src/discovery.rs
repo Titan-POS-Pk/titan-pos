@@ -256,7 +256,10 @@ impl DiscoveryService {
             SyncError::ConnectionFailed(format!("Failed to enable broadcast: {}", e))
         })?;
 
-        info!(port = self.config.discovery_port, "Discovery service started");
+        info!(
+            port = self.config.discovery_port,
+            "Discovery service started"
+        );
 
         let socket = Arc::new(socket);
         self.socket = Some(socket.clone());
@@ -415,14 +418,14 @@ impl DiscoveryService {
         if payload.len() < offset + device_id_len {
             return Err(SyncError::InvalidMessage("Device ID truncated".into()));
         }
-        let device_id =
-            String::from_utf8(payload[offset..offset + device_id_len].to_vec()).map_err(|_| {
-                SyncError::InvalidMessage("Invalid device_id UTF-8".into())
-            })?;
+        let device_id = String::from_utf8(payload[offset..offset + device_id_len].to_vec())
+            .map_err(|_| SyncError::InvalidMessage("Invalid device_id UTF-8".into()))?;
         offset += device_id_len;
 
         if payload.len() < offset + 1 {
-            return Err(SyncError::InvalidMessage("Device name length missing".into()));
+            return Err(SyncError::InvalidMessage(
+                "Device name length missing".into(),
+            ));
         }
         let device_name_len = payload[offset] as usize;
         offset += 1;
@@ -479,10 +482,8 @@ impl DiscoveryService {
             let msg = Self::build_discovery_request(&sync_config);
 
             // Send broadcast to 255.255.255.255
-            let broadcast_addr = SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::BROADCAST),
-                config.discovery_port,
-            );
+            let broadcast_addr =
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::BROADCAST), config.discovery_port);
 
             if let Err(e) = socket.send_to(&msg, broadcast_addr).await {
                 warn!(?e, "Failed to send discovery broadcast");
@@ -576,20 +577,20 @@ pub async fn discover_hubs(
         SyncError::ConnectionFailed(format!("Failed to bind discovery socket: {}", e))
     })?;
 
-    socket.set_broadcast(true).map_err(|e| {
-        SyncError::ConnectionFailed(format!("Failed to enable broadcast: {}", e))
-    })?;
+    socket
+        .set_broadcast(true)
+        .map_err(|e| SyncError::ConnectionFailed(format!("Failed to enable broadcast: {}", e)))?;
 
     // Build and send discovery request
     let request = DiscoveryService::build_discovery_request(sync_config);
-    let broadcast_addr = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::BROADCAST),
-        config.discovery_port,
-    );
+    let broadcast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::BROADCAST), config.discovery_port);
 
-    socket.send_to(&request, broadcast_addr).await.map_err(|e| {
-        SyncError::ConnectionFailed(format!("Failed to send discovery broadcast: {}", e))
-    })?;
+    socket
+        .send_to(&request, broadcast_addr)
+        .await
+        .map_err(|e| {
+            SyncError::ConnectionFailed(format!("Failed to send discovery broadcast: {}", e))
+        })?;
 
     debug!("Sent discovery broadcast, waiting for responses");
 

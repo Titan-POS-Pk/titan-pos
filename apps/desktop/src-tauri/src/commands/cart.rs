@@ -150,7 +150,7 @@ pub async fn add_to_cart(
     // └─────────────────────────────────────────────────────────────────────────┘
     if product.track_inventory {
         let current_stock = product.current_stock.unwrap_or(0);
-        
+
         // Get current quantity in cart for this product
         let existing_qty = cart.with_cart(|c| {
             c.items
@@ -159,9 +159,9 @@ pub async fn add_to_cart(
                 .map(|i| i.quantity)
                 .unwrap_or(0)
         });
-        
+
         let total_requested = existing_qty + quantity;
-        
+
         // Check if we have enough stock (or if back-orders are allowed)
         if current_stock < total_requested && !product.allow_negative_stock {
             return Err(ApiError::insufficient_stock(

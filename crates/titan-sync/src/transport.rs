@@ -308,9 +308,7 @@ impl Transport {
     }
 
     /// Connects with timeout.
-    async fn connect_with_timeout(
-        &self,
-    ) -> SyncResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+    async fn connect_with_timeout(&self) -> SyncResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
         let connect_future = connect_async(&self.config.url);
 
         match timeout(self.config.connect_timeout, connect_future).await {

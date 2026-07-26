@@ -249,9 +249,9 @@ impl HubServer {
 
         // Bind the listener
         let bind_addr = self.config.bind_address();
-        let listener = TcpListener::bind(&bind_addr)
-            .await
-            .map_err(|e| SyncError::TransportError(format!("Failed to bind to {}: {}", bind_addr, e)))?;
+        let listener = TcpListener::bind(&bind_addr).await.map_err(|e| {
+            SyncError::TransportError(format!("Failed to bind to {}: {}", bind_addr, e))
+        })?;
 
         info!(addr = %bind_addr, "Hub server started");
 
@@ -384,7 +384,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<HubState>, addr: SocketAddr
                 Ok(msg) => {
                     // Don't send message back to originator
                     if let Ok(json) = serde_json::to_string(&msg) {
-                        if outgoing_tx_clone.send(Message::Text(json.into())).await.is_err() {
+                        if outgoing_tx_clone
+                            .send(Message::Text(json.into()))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -404,7 +408,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<HubState>, addr: SocketAddr
         let mut ping_interval = interval(PING_INTERVAL);
         loop {
             ping_interval.tick().await;
-            if outgoing_tx_ping.send(Message::Ping(axum::body::Bytes::new())).await.is_err() {
+            if outgoing_tx_ping
+                .send(Message::Ping(axum::body::Bytes::new()))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -415,26 +423,22 @@ async fn handle_socket(socket: WebSocket, state: Arc<HubState>, addr: SocketAddr
         match receiver.next().await {
             Some(Ok(msg)) => {
                 match msg {
-                    Message::Text(text) => {
-                        match serde_json::from_str::<SyncMessage>(&text) {
-                            Ok(sync_msg) => {
-                                handle_client_message(&state, &device_id, sync_msg).await;
-                            }
-                            Err(e) => {
-                                debug!(device_id = %device_id, ?e, "Invalid message format");
-                            }
+                    Message::Text(text) => match serde_json::from_str::<SyncMessage>(&text) {
+                        Ok(sync_msg) => {
+                            handle_client_message(&state, &device_id, sync_msg).await;
                         }
-                    }
-                    Message::Binary(data) => {
-                        match serde_json::from_slice::<SyncMessage>(&data) {
-                            Ok(sync_msg) => {
-                                handle_client_message(&state, &device_id, sync_msg).await;
-                            }
-                            Err(e) => {
-                                debug!(device_id = %device_id, ?e, "Invalid binary message");
-                            }
+                        Err(e) => {
+                            debug!(device_id = %device_id, ?e, "Invalid message format");
                         }
-                    }
+                    },
+                    Message::Binary(data) => match serde_json::from_slice::<SyncMessage>(&data) {
+                        Ok(sync_msg) => {
+                            handle_client_message(&state, &device_id, sync_msg).await;
+                        }
+                        Err(e) => {
+                            debug!(device_id = %device_id, ?e, "Invalid binary message");
+                        }
+                    },
                     Message::Pong(_) => {
                         // Connection is alive
                     }

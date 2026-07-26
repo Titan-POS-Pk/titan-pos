@@ -105,10 +105,13 @@ impl InboundHandlerHandle {
             .await
             .map_err(|_| SyncError::ChannelError("Update channel closed".into()))
     }
-    
+
     /// Routes an inventory update message to the handler.
     /// This applies stock deltas from PRIMARY to SECONDARY's local database.
-    pub async fn handle_inventory_update(&self, update: crate::protocol::InventoryUpdate) -> SyncResult<()> {
+    pub async fn handle_inventory_update(
+        &self,
+        update: crate::protocol::InventoryUpdate,
+    ) -> SyncResult<()> {
         self.update_tx
             .send(SyncMessage::InventoryUpdate(update))
             .await
@@ -185,24 +188,27 @@ impl InboundHandler {
 
         info!("Inbound handler stopped");
     }
-    
+
     /// Processes an inventory update from PRIMARY.
-    /// 
+    ///
     /// This applies the stock delta to the SECONDARY's local database
     /// and notifies the frontend to refresh the product display.
     /// Unlike EntityUpdate, this is a CRDT-style delta that's always applied.
-    /// 
+    ///
     /// ## Self-Echo Prevention
     /// When SECONDARY makes a sale, it:
     /// 1. Decrements stock locally
     /// 2. Sends InventoryDelta to PRIMARY
     /// 3. PRIMARY broadcasts InventoryUpdate to ALL clients (including sender)
-    /// 
+    ///
     /// To prevent double-decrement, we skip updates where source_device_id matches
     /// our own device ID - we already applied that delta locally.
-    async fn process_inventory_update(&self, update: crate::protocol::InventoryUpdate) -> SyncResult<()> {
+    async fn process_inventory_update(
+        &self,
+        update: crate::protocol::InventoryUpdate,
+    ) -> SyncResult<()> {
         let my_device_id = self.config.device_id();
-        
+
         // Skip self-echoed updates (we already applied this delta locally)
         if update.source_device_id == my_device_id {
             debug!(
@@ -214,33 +220,31 @@ impl InboundHandler {
             );
             return Ok(());
         }
-        
+
         info!(
             product_id = %update.product_id,
             delta = update.delta_quantity,
             source = %update.source_device_id,
             "Applying inventory update from PRIMARY"
         );
-        
+
         // Apply the stock delta to local database
         self.db
             .products()
             .update_stock(&update.product_id, update.delta_quantity)
             .await?;
-        
+
         info!(
             product_id = %update.product_id,
             delta = update.delta_quantity,
             "Inventory update applied successfully"
         );
-        
+
         // Notify the frontend to refresh the product display
         // This ensures the UI shows the updated stock level
-        self.emitter.emit_inventory_update(
-            vec![update.product_id.clone()],
-            "sync_from_primary"
-        );
-        
+        self.emitter
+            .emit_inventory_update(vec![update.product_id.clone()], "sync_from_primary");
+
         Ok(())
     }
 
@@ -290,11 +294,7 @@ impl InboundHandler {
     /// Applies a product update.
     async fn apply_product_update(&self, update: &EntityUpdate) -> SyncResult<i64> {
         // Check version to avoid applying stale updates
-        let current = self
-            .db
-            .products()
-            .get_by_id(&update.entity_id)
-            .await?;
+        let current = self.db.products().get_by_id(&update.entity_id).await?;
 
         if let Some(ref product) = current {
             if product.sync_version >= update.version {
@@ -311,8 +311,7 @@ impl InboundHandler {
         match update.operation.as_str() {
             "upsert" => {
                 // Parse full product from data
-                let mut product: titan_core::Product =
-                    serde_json::from_value(update.data.clone())?;
+                let mut product: titan_core::Product = serde_json::from_value(update.data.clone())?;
 
                 // Ensure sync_version is set
                 product.sync_version = update.version;
@@ -557,10 +556,10 @@ impl InboundHandler {
     ) -> SyncResult<()> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
-        
+
         // Get local device ID from config or use a default
         let origin_device_id = "sync".to_string();
-        
+
         // Get next sequence number (simplified - in production would use atomic counter)
         let sequence_num: i64 = 1;
 
@@ -595,7 +594,6 @@ impl InboundHandler {
 
 #[cfg(test)]
 mod tests {
-    
 
     // Tests would go here with mock database
 }

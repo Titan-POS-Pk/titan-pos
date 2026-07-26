@@ -889,7 +889,10 @@ mod tests {
         assert_eq!("auto".parse::<SyncMode>().unwrap(), SyncMode::Auto);
         assert_eq!("primary".parse::<SyncMode>().unwrap(), SyncMode::Primary);
         assert_eq!("hub".parse::<SyncMode>().unwrap(), SyncMode::Primary);
-        assert_eq!("secondary".parse::<SyncMode>().unwrap(), SyncMode::Secondary);
+        assert_eq!(
+            "secondary".parse::<SyncMode>().unwrap(),
+            SyncMode::Secondary
+        );
         assert_eq!("offline".parse::<SyncMode>().unwrap(), SyncMode::Offline);
         assert!("invalid".parse::<SyncMode>().is_err());
     }

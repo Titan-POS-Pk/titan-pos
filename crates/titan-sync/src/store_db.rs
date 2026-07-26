@@ -52,7 +52,8 @@ use crate::protocol::{AggregationSummary, InventoryMover, PaymentSummary, SalesS
 
 /// Schema for the store aggregates database.
 /// This is embedded at compile time from the migration file.
-const STORE_SCHEMA: &str = include_str!("../../../migrations/sqlite/004_store_aggregates_schema.sql");
+const STORE_SCHEMA: &str =
+    include_str!("../../../migrations/sqlite/004_store_aggregates_schema.sql");
 
 // =============================================================================
 // Store Database
@@ -97,7 +98,9 @@ impl StoreDatabase {
             .max_connections(5)
             .connect_with(options)
             .await
-            .map_err(|e| SyncError::DatabaseError(format!("Failed to open store database: {}", e)))?;
+            .map_err(|e| {
+                SyncError::DatabaseError(format!("Failed to open store database: {}", e))
+            })?;
 
         // Run schema migration
         Self::run_schema(&pool).await?;
@@ -184,7 +187,9 @@ impl StoreDatabase {
         .bind(delta_source)
         .execute(&self.pool)
         .await
-        .map_err(|e| SyncError::DatabaseError(format!("Failed to record inventory snapshot: {}", e)))?;
+        .map_err(|e| {
+            SyncError::DatabaseError(format!("Failed to record inventory snapshot: {}", e))
+        })?;
 
         Ok(())
     }
@@ -224,13 +229,7 @@ impl StoreDatabase {
 
         Ok(rows
             .iter()
-            .map(|row| {
-                (
-                    row.get("product_id"),
-                    row.get("sku"),
-                    row.get("quantity"),
-                )
-            })
+            .map(|row| (row.get("product_id"), row.get("sku"), row.get("quantity")))
             .collect())
     }
 
@@ -371,7 +370,11 @@ impl StoreDatabase {
         count: i32,
         total_cents: i64,
     ) -> SyncResult<()> {
-        let avg_cents = if count > 0 { total_cents / count as i64 } else { 0 };
+        let avg_cents = if count > 0 {
+            total_cents / count as i64
+        } else {
+            0
+        };
 
         sqlx::query(
             r#"
@@ -397,7 +400,9 @@ impl StoreDatabase {
         .bind(avg_cents)
         .execute(&self.pool)
         .await
-        .map_err(|e| SyncError::DatabaseError(format!("Failed to upsert payment summary: {}", e)))?;
+        .map_err(|e| {
+            SyncError::DatabaseError(format!("Failed to upsert payment summary: {}", e))
+        })?;
 
         Ok(())
     }
@@ -463,7 +468,9 @@ impl StoreDatabase {
         .bind(ip_address)
         .execute(&self.pool)
         .await
-        .map_err(|e| SyncError::DatabaseError(format!("Failed to update device activity: {}", e)))?;
+        .map_err(|e| {
+            SyncError::DatabaseError(format!("Failed to update device activity: {}", e))
+        })?;
 
         Ok(())
     }
@@ -489,7 +496,9 @@ impl StoreDatabase {
         .bind(device_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| SyncError::DatabaseError(format!("Failed to increment device sales: {}", e)))?;
+        .map_err(|e| {
+            SyncError::DatabaseError(format!("Failed to increment device sales: {}", e))
+        })?;
 
         Ok(())
     }
@@ -514,8 +523,10 @@ impl StoreDatabase {
             .map(|row| {
                 (
                     row.get("device_id"),
-                    row.get::<Option<String>, _>("device_name").unwrap_or_default(),
-                    row.get::<Option<String>, _>("ip_address").unwrap_or_default(),
+                    row.get::<Option<String>, _>("device_name")
+                        .unwrap_or_default(),
+                    row.get::<Option<String>, _>("ip_address")
+                        .unwrap_or_default(),
                 )
             })
             .collect())
@@ -590,7 +601,9 @@ impl StoreDatabase {
         .bind(log_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| SyncError::DatabaseError(format!("Failed to log aggregation complete: {}", e)))?;
+        .map_err(|e| {
+            SyncError::DatabaseError(format!("Failed to log aggregation complete: {}", e))
+        })?;
 
         Ok(())
     }
@@ -608,7 +621,9 @@ impl StoreDatabase {
         .bind(log_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| SyncError::DatabaseError(format!("Failed to log aggregation failure: {}", e)))?;
+        .map_err(|e| {
+            SyncError::DatabaseError(format!("Failed to log aggregation failure: {}", e))
+        })?;
 
         Ok(())
     }
@@ -624,7 +639,9 @@ impl StoreDatabase {
         period_end: &str,
     ) -> SyncResult<AggregationSummary> {
         // Get sales summary
-        let sales = self.get_sales_summary("hour", period_start).await?
+        let sales = self
+            .get_sales_summary("hour", period_start)
+            .await?
             .unwrap_or(SalesSummary {
                 count: 0,
                 gross_cents: 0,
@@ -673,7 +690,9 @@ impl StoreDatabase {
             .map(|row| InventoryMover {
                 product_id: row.get("product_id"),
                 sku: row.get("sku"),
-                name: row.get::<Option<String>, _>("product_name").unwrap_or_default(),
+                name: row
+                    .get::<Option<String>, _>("product_name")
+                    .unwrap_or_default(),
                 quantity_delta: row.get("total_delta"),
             })
             .collect())
@@ -754,7 +773,10 @@ impl StoreDatabase {
         .map_err(|e| SyncError::DatabaseError(format!("Failed to purge logs: {}", e)))?;
         total_deleted += result.rows_affected();
 
-        info!(total_deleted, retention_days, "Purged old data from store database");
+        info!(
+            total_deleted,
+            retention_days, "Purged old data from store database"
+        );
         Ok(total_deleted)
     }
 
@@ -772,7 +794,9 @@ mod tests {
     async fn create_test_db() -> (StoreDatabase, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test_store.db");
-        let db = StoreDatabase::open(&db_path, "test-store-001").await.unwrap();
+        let db = StoreDatabase::open(&db_path, "test-store-001")
+            .await
+            .unwrap();
         (db, temp_dir)
     }
 

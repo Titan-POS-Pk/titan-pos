@@ -13,10 +13,10 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to the proto file (relative to crate root)
     let proto_file = "../../proto/titan_sync.proto";
-    
+
     // Only recompile if the proto file changes
     println!("cargo:rerun-if-changed={}", proto_file);
-    
+
     // Configure tonic-build for client generation only
     // We don't need server code in titan-sync - that's in cloud-api
     tonic_build::configure()
@@ -29,6 +29,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &[proto_file],
             &["../../proto"], // Include directory for imports
         )?;
-    
+
     Ok(())
 }

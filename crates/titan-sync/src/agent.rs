@@ -105,7 +105,7 @@ pub trait SyncEventEmitter: Send + Sync {
 
     /// Emits a sync error event.
     fn emit_error(&self, message: &str, retryable: bool);
-    
+
     /// Emits an inventory update event.
     /// Called when SECONDARY receives inventory updates from PRIMARY.
     fn emit_inventory_update(&self, product_ids: Vec<String>, reason: &str);
@@ -213,9 +213,7 @@ impl SyncAgent {
                 // In future milestones, we'd start discovery here
                 // For now, require explicit hub URL
                 warn!("No hub URL configured, sync will not start");
-                return Err(SyncError::InvalidConfig(
-                    "Hub URL required for sync".into(),
-                ));
+                return Err(SyncError::InvalidConfig("Hub URL required for sync".into()));
             }
         };
 
@@ -321,7 +319,7 @@ impl SyncAgent {
         }
 
         info!("Sync agent started");
-        
+
         // Return handle - CRITICAL: caller MUST keep this alive!
         // Dropping the handle will trigger shutdown via channel closure.
         // Include transport handle for SECONDARY to send inventory deltas
@@ -416,7 +414,7 @@ impl SyncAgent {
                                 error!(?e, "Failed to route entity update");
                             }
                         }
-                        
+
                         SyncMessage::InventoryUpdate(update) => {
                             // Route inventory updates to inbound handler
                             // This applies the stock delta from PRIMARY to SECONDARY's local database
@@ -496,29 +494,26 @@ pub struct SyncAgentHandle {
 
     /// Status accessor.
     status: Arc<RwLock<SyncStatus>>,
-    
+
     /// Transport handle for sending messages (SECONDARY mode).
     transport: Option<TransportHandle>,
 }
 
 impl SyncAgentHandle {
     /// Creates a new handle from agent internals.
-    /// 
+    ///
     /// # IMPORTANT
     /// This handle must be kept alive for the sync agent to continue running.
     /// When all handles are dropped, the shutdown channel closes and the agent
     /// will shut down gracefully.
-    pub fn new(
-        shutdown_tx: mpsc::Sender<()>,
-        status: Arc<RwLock<SyncStatus>>,
-    ) -> Self {
+    pub fn new(shutdown_tx: mpsc::Sender<()>, status: Arc<RwLock<SyncStatus>>) -> Self {
         SyncAgentHandle {
             shutdown_tx,
             status,
             transport: None,
         }
     }
-    
+
     /// Creates a new handle with transport access (for SECONDARY mode).
     pub fn new_with_transport(
         shutdown_tx: mpsc::Sender<()>,
@@ -531,9 +526,9 @@ impl SyncAgentHandle {
             transport: Some(transport),
         }
     }
-    
+
     /// Sends an inventory delta to the hub (SECONDARY mode only).
-    /// 
+    ///
     /// This is used when SECONDARY makes a sale and needs to notify PRIMARY
     /// about the stock change so it can be broadcast to other secondaries.
     pub async fn send_inventory_delta(
@@ -549,7 +544,7 @@ impl SyncAgentHandle {
                 delta_quantity: delta_qty,
                 timestamp: chrono::Utc::now().to_rfc3339(),
             };
-            
+
             transport.send(SyncMessage::InventoryDelta(delta)).await?;
             Ok(true)
         } else {

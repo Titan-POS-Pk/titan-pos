@@ -53,12 +53,15 @@ use directories::ProjectDirs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Manager;
-use tracing::{debug, info, warn, error, Level};
+use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::EnvFilter;
 
-use state::{CartState, ConfigState, DbState, SimpleSyncEmitter, SyncState, TauriSyncEventEmitter, SyncStatusDto};
+use state::{
+    CartState, ConfigState, DbState, SimpleSyncEmitter, SyncState, SyncStatusDto,
+    TauriSyncEventEmitter,
+};
 use titan_db::{Database, DbConfig};
-use titan_sync::{SyncConfig, SyncMode, SyncAgent};
+use titan_sync::{SyncAgent, SyncConfig, SyncMode};
 
 /// Runs the Tauri application.
 ///
@@ -126,7 +129,7 @@ pub fn run() {
             let cart_state = CartState::new();
             let config_state = ConfigState::default();
             let sync_state = SyncState::new();
-            
+
             // Set app handle for event emission
             sync_state.set_app_handle(app.handle().clone());
 
@@ -140,7 +143,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let sync_state_clone = sync_state.clone();
             let db_arc = Arc::new(db);
-            
+
             tauri::async_runtime::spawn(async move {
                 start_sync_agent_if_configured(app_handle, sync_state_clone, db_arc).await;
             });
@@ -245,20 +248,20 @@ fn get_database_path(_app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::E
         // Check if running multi-device test (TITAN_DEVICE_ID set)
         // Each device gets its own database file for realistic sync testing
         let device_id = std::env::var("TITAN_DEVICE_ID").ok();
-        
+
         // Base path from CARGO_MANIFEST_DIR
         let data_dir = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../data"));
-        
+
         if let Some(ref id) = device_id {
             // Use device-specific database: data/titan-{device_id}.db
             let device_db = data_dir.join(format!("titan-{}.db", id));
-            
+
             if device_db.exists() {
                 let canonical = device_db.canonicalize()?;
                 info!(?canonical, device_id = %id, "Using device-specific database");
                 return Ok(canonical);
             }
-            
+
             // Device DB doesn't exist - copy from base database
             let base_db = data_dir.join("titan.db");
             if base_db.exists() {
@@ -273,7 +276,7 @@ fn get_database_path(_app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::E
                 return Ok(canonical);
             }
         }
-        
+
         // Paths to try, in order of preference:
         // 1. Relative to CARGO_MANIFEST_DIR (set at compile time for src-tauri)
         // 2. Standard project root locations
@@ -332,8 +335,8 @@ async fn start_sync_agent_if_configured(
         .unwrap_or_else(|_| "primary".to_string())
         .to_lowercase();
 
-    let device_id = std::env::var("TITAN_DEVICE_ID")
-        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+    let device_id =
+        std::env::var("TITAN_DEVICE_ID").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
     let hub_port: u16 = std::env::var("TITAN_HUB_PORT")
         .ok()
@@ -352,8 +355,11 @@ async fn start_sync_agent_if_configured(
 
     match sync_mode.as_str() {
         "primary" => {
-            info!("Starting as PRIMARY - launching hub server on port {}", hub_port);
-            
+            info!(
+                "Starting as PRIMARY - launching hub server on port {}",
+                hub_port
+            );
+
             // Create sync config for primary mode
             let mut config = SyncConfig::load_or_default(None);
             config.device.id = device_id.clone();
@@ -365,7 +371,7 @@ async fn start_sync_agent_if_configured(
             // Create broadcast channel for hub to broadcast to connected secondaries
             // This channel is shared with SyncState so sale commands can broadcast
             let (hub_broadcast_tx, _) = tokio::sync::broadcast::channel::<String>(256);
-            
+
             // Store broadcast channel in SyncState so sale finalization can use it
             sync_state.set_hub_broadcast_tx(hub_broadcast_tx.clone());
 
@@ -373,7 +379,9 @@ async fn start_sync_agent_if_configured(
             let db_for_hub = db.clone();
             let device_id_for_hub = device_id.clone();
             tauri::async_runtime::spawn(async move {
-                match start_primary_hub(hub_port, db_for_hub, device_id_for_hub, hub_broadcast_tx).await {
+                match start_primary_hub(hub_port, db_for_hub, device_id_for_hub, hub_broadcast_tx)
+                    .await
+                {
                     Ok(()) => info!("Primary hub server running"),
                     Err(e) => error!(?e, "Failed to start primary hub"),
                 }
@@ -393,7 +401,7 @@ async fn start_sync_agent_if_configured(
         "secondary" => {
             if let Some(url) = hub_url {
                 info!("Starting as SECONDARY - connecting to hub at {}", url);
-                
+
                 // Create sync config for secondary mode
                 let mut config = SyncConfig::load_or_default(None);
                 config.device.id = device_id.clone();
@@ -411,10 +419,10 @@ async fn start_sync_agent_if_configured(
 
                 // Create and start sync agent (db is already Arc<Database>)
                 let mut agent = SyncAgent::with_emitter(config, db.clone(), emitter);
-                
+
                 // Clone sync_state to move into the spawned task
                 let sync_state_for_agent = sync_state.clone();
-                
+
                 tauri::async_runtime::spawn(async move {
                     match agent.start().await {
                         Ok(handle) => {
@@ -483,16 +491,18 @@ async fn start_sync_agent_if_configured(
             tauri::async_runtime::spawn(async move {
                 // First, check if a hub already exists by trying to connect
                 let hub_url = format!("ws://localhost:{}/sync", hub_port);
-                
+
                 info!(hub_url = %hub_url, "AUTO mode - checking for existing hub");
-                
+
                 // Try to connect with a few quick retries
                 let mut hub_found = false;
                 for attempt in 0..3 {
                     match tokio::time::timeout(
                         tokio::time::Duration::from_millis(500),
-                        tokio::net::TcpStream::connect(format!("localhost:{}", hub_port))
-                    ).await {
+                        tokio::net::TcpStream::connect(format!("localhost:{}", hub_port)),
+                    )
+                    .await
+                    {
                         Ok(Ok(_)) => {
                             info!(attempt = attempt, "Found existing hub");
                             hub_found = true;
@@ -505,11 +515,11 @@ async fn start_sync_agent_if_configured(
                         }
                     }
                 }
-                
+
                 if hub_found {
                     // Hub exists - connect as SECONDARY
                     info!("Existing hub found - connecting as SECONDARY");
-                    
+
                     let status = state::SyncStatusDto {
                         connection_state: "connecting".to_string(),
                         sync_mode: "auto".to_string(),
@@ -518,14 +528,10 @@ async fn start_sync_agent_if_configured(
                         ..Default::default()
                     };
                     sync_state_clone.update_status(status);
-                    
+
                     // Start sync agent in secondary mode
-                    start_secondary_agent(
-                        hub_url,
-                        device_id_clone,
-                        db_clone,
-                        sync_state_clone
-                    ).await;
+                    start_secondary_agent(hub_url, device_id_clone, db_clone, sync_state_clone)
+                        .await;
                 } else {
                     // No hub found - wait based on priority, then become PRIMARY
                     // Higher priority = shorter wait (so they win the race)
@@ -536,24 +542,21 @@ async fn start_sync_agent_if_configured(
                         "No hub found - waiting before becoming PRIMARY"
                     );
                     tokio::time::sleep(tokio::time::Duration::from_millis(election_delay_ms)).await;
-                    
+
                     // Check one more time if a hub appeared during our wait
-                    let hub_appeared = tokio::net::TcpStream::connect(format!("localhost:{}", hub_port))
-                        .await
-                        .is_ok();
-                    
+                    let hub_appeared =
+                        tokio::net::TcpStream::connect(format!("localhost:{}", hub_port))
+                            .await
+                            .is_ok();
+
                     if hub_appeared {
                         info!("Hub appeared during election wait - connecting as SECONDARY");
-                        start_secondary_agent(
-                            hub_url,
-                            device_id_clone,
-                            db_clone,
-                            sync_state_clone
-                        ).await;
+                        start_secondary_agent(hub_url, device_id_clone, db_clone, sync_state_clone)
+                            .await;
                     } else {
                         // Still no hub - become PRIMARY
                         info!("No hub detected - becoming PRIMARY");
-                        
+
                         let status = state::SyncStatusDto {
                             connection_state: "listening".to_string(),
                             sync_mode: "auto".to_string(),
@@ -562,12 +565,19 @@ async fn start_sync_agent_if_configured(
                             ..Default::default()
                         };
                         sync_state_clone.update_status(status);
-                        
+
                         // Create broadcast channel for AUTO-elected PRIMARY
                         let (hub_broadcast_tx, _) = tokio::sync::broadcast::channel::<String>(256);
                         sync_state_clone.set_hub_broadcast_tx(hub_broadcast_tx.clone());
-                        
-                        match start_primary_hub(hub_port, db_clone, device_id_clone, hub_broadcast_tx).await {
+
+                        match start_primary_hub(
+                            hub_port,
+                            db_clone,
+                            device_id_clone,
+                            hub_broadcast_tx,
+                        )
+                        .await
+                        {
                             Ok(()) => {
                                 info!("Auto-elected PRIMARY hub stopped");
                             }
@@ -604,7 +614,7 @@ async fn start_sync_agent_if_configured(
 }
 
 /// Helper function to start sync agent in SECONDARY mode.
-/// 
+///
 /// This connects to an existing hub and syncs data bidirectionally.
 async fn start_secondary_agent(
     hub_url: String,
@@ -613,7 +623,7 @@ async fn start_secondary_agent(
     sync_state: state::SyncState,
 ) {
     info!(hub_url = %hub_url, "Starting SECONDARY sync agent");
-    
+
     // Create sync config for secondary mode
     let mut config = SyncConfig::load_or_default(None);
     config.device.id = device_id;
@@ -626,7 +636,11 @@ async fn start_secondary_agent(
     let hub_url_for_error = hub_url.clone();
     let emitter = Arc::new(SimpleSyncEmitter::new(move |connected| {
         let status = state::SyncStatusDto {
-            connection_state: if connected { "connected".to_string() } else { "connecting".to_string() },
+            connection_state: if connected {
+                "connected".to_string()
+            } else {
+                "connecting".to_string()
+            },
             sync_mode: "auto".to_string(),
             is_healthy: connected,
             hub_url: Some(hub_url_for_emitter.clone()),
@@ -637,7 +651,7 @@ async fn start_secondary_agent(
 
     // Create and start sync agent
     let mut agent = SyncAgent::with_emitter(config, db, emitter);
-    
+
     match agent.start().await {
         Ok(handle) => {
             info!("SECONDARY sync agent started successfully");
@@ -660,13 +674,13 @@ async fn start_secondary_agent(
 }
 
 /// Starts a simple WebSocket hub server for PRIMARY mode.
-/// 
+///
 /// This creates a WebSocket server that:
 /// - Accepts connections from SECONDARY devices
 /// - Speaks the titan-sync protocol (Hello/Welcome handshake)
 /// - Broadcasts inventory updates to all connected clients
 /// - Applies received inventory deltas to local database
-/// 
+///
 /// ## Protocol Flow
 /// ```text
 /// SECONDARY ───► Hello { device_id, store_id, ... }
@@ -708,7 +722,7 @@ async fn start_primary_hub(
         db: db.clone(),
         hub_device_id: device_id.clone(),
     };
-    
+
     // Spawn outbox broadcaster task for PRIMARY
     // This reads PRIMARY's sync_outbox and broadcasts to connected secondaries
     let broadcast_tx_for_outbox = broadcast_tx.clone();
@@ -718,32 +732,38 @@ async fn start_primary_hub(
         info!("PRIMARY outbox broadcaster started");
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        
+
         loop {
             interval.tick().await;
-            
+
             // Get pending outbox entries
             match db_for_outbox.sync_outbox().get_pending(100).await {
                 Ok(entries) if !entries.is_empty() => {
-                    info!(count = entries.len(), "PRIMARY broadcasting outbox entries to secondaries");
-                    
+                    info!(
+                        count = entries.len(),
+                        "PRIMARY broadcasting outbox entries to secondaries"
+                    );
+
                     // Collect entry IDs for marking as synced
                     let entry_ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
-                    
+
                     // Build EntityUpdate messages for each entry
                     for entry in &entries {
                         // Parse the payload to get the actual entity data
-                        let data = serde_json::from_str::<serde_json::Value>(&entry.payload).unwrap_or_default();
+                        let data = serde_json::from_str::<serde_json::Value>(&entry.payload)
+                            .unwrap_or_default();
                         // Extract version from the data if available (sync_version field)
-                        let version = data.get("sync_version")
+                        let version = data
+                            .get("sync_version")
                             .and_then(|v| v.as_i64())
                             .unwrap_or(1);
                         // Extract updated_at from the data if available
-                        let updated_at = data.get("updated_at")
+                        let updated_at = data
+                            .get("updated_at")
                             .and_then(|v| v.as_str())
                             .unwrap_or(&chrono::Utc::now().to_rfc3339())
                             .to_string();
-                            
+
                         let entity_update = serde_json::json!({
                             "type": "EntityUpdate",
                             "payload": {
@@ -757,7 +777,7 @@ async fn start_primary_hub(
                                 "timestamp": chrono::Utc::now().to_rfc3339()
                             }
                         });
-                        
+
                         // Broadcast to all connected clients
                         if let Err(e) = broadcast_tx_for_outbox.send(entity_update.to_string()) {
                             debug!(?e, "No clients subscribed to broadcast (this is OK if no secondaries connected)");
@@ -769,14 +789,14 @@ async fn start_primary_hub(
                             );
                         }
                     }
-                    
+
                     // Mark entries as synced
                     for id in entry_ids {
                         if let Err(e) = db_for_outbox.sync_outbox().mark_synced(&id).await {
                             error!(?e, id = %id, "Failed to mark outbox entry as synced");
                         }
                     }
-                    
+
                     info!("PRIMARY outbox broadcast complete");
                 }
                 Ok(_) => {
@@ -791,10 +811,7 @@ async fn start_primary_hub(
     });
 
     // WebSocket handler
-    async fn ws_handler(
-        ws: WebSocketUpgrade,
-        State(state): State<HubState>,
-    ) -> impl IntoResponse {
+    async fn ws_handler(ws: WebSocketUpgrade, State(state): State<HubState>) -> impl IntoResponse {
         ws.on_upgrade(move |socket| handle_socket(socket, state))
     }
 
@@ -812,20 +829,20 @@ async fn start_primary_hub(
         // Wait for Hello message from client
         let mut client_device_id = String::from("unknown");
         let mut handshake_complete = false;
-        
+
         // Use the Sender in an Arc+Mutex so we can share it
         let sender = Arc::new(tokio::sync::Mutex::new(sender));
         let sender_for_broadcast = sender.clone();
         let sender_for_recv = sender.clone();
-        
+
         // Handle messages until we get Hello (ignoring PING/PONG control frames)
         // WebSocket clients may send PING frames for keepalive before Hello
         let mut attempts = 0;
         const MAX_HANDSHAKE_ATTEMPTS: u32 = 50; // Give plenty of time for Hello
-        
+
         while !handshake_complete && attempts < MAX_HANDSHAKE_ATTEMPTS {
             attempts += 1;
-            
+
             match receiver.next().await {
                 Some(Ok(Message::Text(text))) => {
                     // Parse as JSON to check message type
@@ -840,9 +857,9 @@ async fn start_primary_hub(
                                     .unwrap_or("unknown")
                                     .to_string();
                             }
-                            
+
                             info!(client_device_id = %client_device_id, "Received Hello from client");
-                            
+
                             // Send Welcome response in proper protocol format
                             let welcome = serde_json::json!({
                                 "type": "Welcome",
@@ -853,14 +870,17 @@ async fn start_primary_hub(
                                     "serverTime": chrono::Utc::now().to_rfc3339()
                                 }
                             });
-                            
+
                             let mut s = sender.lock().await;
                             if s.send(Message::Text(welcome.to_string())).await.is_ok() {
                                 handshake_complete = true;
                                 info!(client_device_id = %client_device_id, "Sent Welcome, handshake complete");
                             }
                         } else {
-                            debug!("Received non-Hello message during handshake: {:?}", json.get("type"));
+                            debug!(
+                                "Received non-Hello message during handshake: {:?}",
+                                json.get("type")
+                            );
                         }
                     }
                 }
@@ -894,7 +914,10 @@ async fn start_primary_hub(
         }
 
         if !handshake_complete {
-            warn!("Handshake failed after {} attempts, closing connection", attempts);
+            warn!(
+                "Handshake failed after {} attempts, closing connection",
+                attempts
+            );
             let mut count = state.client_count.write().await;
             *count = count.saturating_sub(1);
             return;
@@ -903,7 +926,7 @@ async fn start_primary_hub(
         // Clone client_device_id for use after async closures
         let client_device_id_for_recv = client_device_id.clone();
         let client_device_id_for_disconnect = client_device_id.clone();
-        
+
         // Spawn task to forward broadcasts to this client
         let send_task = tokio::spawn(async move {
             while let Ok(msg) = rx.recv().await {
@@ -918,18 +941,18 @@ async fn start_primary_hub(
         let broadcast_tx = state.broadcast_tx.clone();
         let db = state.db.clone();
         let _hub_device_id = state.hub_device_id.clone();
-        
+
         let recv_task = tokio::spawn(async move {
             let client_device_id = client_device_id_for_recv;
             while let Some(Ok(msg)) = receiver.next().await {
                 match msg {
                     Message::Text(text) => {
                         let text_str = text.to_string();
-                        
+
                         // Parse message to handle protocol
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text_str) {
                             let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                            
+
                             match msg_type {
                                 "InventoryDelta" => {
                                     // Extract delta info
@@ -949,17 +972,20 @@ async fn start_primary_hub(
                                             .or(payload.get("deltaQty"))
                                             .or(payload.get("delta_qty"))
                                             .and_then(|v| v.as_i64())
-                                            .unwrap_or(0) as i32;
-                                        
+                                            .unwrap_or(0)
+                                            as i32;
+
                                         info!(
                                             product_id = %product_id,
                                             sku = %sku,
                                             delta_qty = delta_qty,
                                             "Received InventoryDelta, applying to DB"
                                         );
-                                        
+
                                         // Apply delta to PRIMARY's database
-                                        if let Err(e) = db.products().update_stock(product_id, delta_qty).await {
+                                        if let Err(e) =
+                                            db.products().update_stock(product_id, delta_qty).await
+                                        {
                                             error!(?e, "Failed to apply inventory delta");
                                         } else {
                                             // Broadcast InventoryUpdate to all clients
@@ -974,7 +1000,7 @@ async fn start_primary_hub(
                                                     "timestamp": chrono::Utc::now().to_rfc3339()
                                                 }
                                             });
-                                            
+
                                             let _ = broadcast_tx.send(update.to_string());
                                             info!(product_id = %product_id, delta_qty = delta_qty, "Broadcast InventoryUpdate");
                                         }
@@ -983,39 +1009,57 @@ async fn start_primary_hub(
                                 "OutboxBatch" => {
                                     // Handle batch entries from SECONDARY and broadcast inventory updates
                                     if let Some(payload) = json.get("payload") {
-                                        let entities = payload
-                                            .get("entities")
-                                            .and_then(|e| e.as_array());
-                                        
-                                        let entries_count = entities.map(|arr| arr.len()).unwrap_or(0);
+                                        let entities =
+                                            payload.get("entities").and_then(|e| e.as_array());
+
+                                        let entries_count =
+                                            entities.map(|arr| arr.len()).unwrap_or(0);
                                         info!(entries = entries_count, from = ?client_device_id, "Received OutboxBatch from SECONDARY");
-                                        
+
                                         // Process each entry and extract inventory deltas
                                         if let Some(entities) = entities {
                                             for entity in entities {
-                                                let entity_type = entity.get("entityType")
+                                                let entity_type = entity
+                                                    .get("entityType")
                                                     .and_then(|t| t.as_str())
                                                     .unwrap_or("");
-                                                
+
                                                 // For SALE entries, extract items and broadcast inventory updates
                                                 if entity_type == "SALE" {
-                                                    if let Some(payload_str) = entity.get("payload").and_then(|p| p.as_str()) {
+                                                    if let Some(payload_str) = entity
+                                                        .get("payload")
+                                                        .and_then(|p| p.as_str())
+                                                    {
                                                         // Parse the sale payload
-                                                        if let Ok(sale_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
+                                                        if let Ok(sale_json) = serde_json::from_str::<
+                                                            serde_json::Value,
+                                                        >(
+                                                            payload_str
+                                                        ) {
                                                             // Extract items array
-                                                            if let Some(items) = sale_json.get("items").and_then(|i| i.as_array()) {
+                                                            if let Some(items) = sale_json
+                                                                .get("items")
+                                                                .and_then(|i| i.as_array())
+                                                            {
                                                                 for item in items {
-                                                                    let product_id = item.get("productId")
-                                                                        .or_else(|| item.get("product_id"))
+                                                                    let product_id = item
+                                                                        .get("productId")
+                                                                        .or_else(|| {
+                                                                            item.get("product_id")
+                                                                        })
                                                                         .and_then(|p| p.as_str());
-                                                                    let quantity = item.get("quantity")
+                                                                    let quantity = item
+                                                                        .get("quantity")
                                                                         .and_then(|q| q.as_i64())
                                                                         .unwrap_or(0);
-                                                                    
-                                                                    if let Some(product_id) = product_id {
+
+                                                                    if let Some(product_id) =
+                                                                        product_id
+                                                                    {
                                                                         // Broadcast negative delta (items sold)
-                                                                        let delta_qty = -(quantity as i32);
-                                                                        
+                                                                        let delta_qty =
+                                                                            -(quantity as i32);
+
                                                                         let update = serde_json::json!({
                                                                             "type": "InventoryUpdate",
                                                                             "payload": {
@@ -1025,11 +1069,13 @@ async fn start_primary_hub(
                                                                                 "timestamp": chrono::Utc::now().to_rfc3339()
                                                                             }
                                                                         });
-                                                                        
-                                                                        let _ = broadcast_tx.send(update.to_string());
+
+                                                                        let _ = broadcast_tx.send(
+                                                                            update.to_string(),
+                                                                        );
                                                                         info!(
-                                                                            product_id = %product_id, 
-                                                                            delta = delta_qty, 
+                                                                            product_id = %product_id,
+                                                                            delta = delta_qty,
                                                                             source = ?client_device_id,
                                                                             "Broadcast InventoryUpdate from SECONDARY sale"
                                                                         );
@@ -1041,19 +1087,21 @@ async fn start_primary_hub(
                                                 }
                                             }
                                         }
-                                        
+
                                         // Send BatchAck
                                         let acked_ids: Vec<String> = payload
                                             .get("entities")
                                             .and_then(|e| e.as_array())
                                             .map(|arr| {
                                                 arr.iter()
-                                                    .filter_map(|e| e.get("id").and_then(|id| id.as_str()))
+                                                    .filter_map(|e| {
+                                                        e.get("id").and_then(|id| id.as_str())
+                                                    })
                                                     .map(|s| s.to_string())
                                                     .collect()
                                             })
                                             .unwrap_or_default();
-                                        
+
                                         let ack = serde_json::json!({
                                             "type": "BatchAck",
                                             "payload": {
@@ -1062,18 +1110,19 @@ async fn start_primary_hub(
                                                 "newCursor": 0
                                             }
                                         });
-                                        
+
                                         let mut s = sender_for_recv.lock().await;
                                         let _ = s.send(Message::Text(ack.to_string())).await;
                                     }
                                 }
                                 "Ping" => {
                                     // Respond with Pong
-                                    let timestamp = json.get("payload")
+                                    let timestamp = json
+                                        .get("payload")
                                         .and_then(|p| p.get("timestamp"))
                                         .and_then(|t| t.as_str())
                                         .unwrap_or("");
-                                    
+
                                     let pong = serde_json::json!({
                                         "type": "Pong",
                                         "payload": {
@@ -1081,7 +1130,7 @@ async fn start_primary_hub(
                                             "pongTimestamp": chrono::Utc::now().to_rfc3339()
                                         }
                                     });
-                                    
+
                                     let mut s = sender_for_recv.lock().await;
                                     let _ = s.send(Message::Text(pong.to_string())).await;
                                 }

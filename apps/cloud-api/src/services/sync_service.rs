@@ -14,14 +14,10 @@ use tracing::{info, warn};
 use crate::auth::{extract_bearer_token, JwtManager};
 use crate::db::{InventoryDeltaRecord, PaymentRecord, SaleItemRecord, SaleRecord};
 use crate::proto::{
-    sync_service_server::SyncService,
-    AcknowledgeUpdatesRequest, AcknowledgeUpdatesResponse,
-    EntityUpdate, GetPendingUpdatesRequest,
-    GetSyncStatusRequest, GetSyncStatusResponse,
-    ReportCursorRequest, ReportCursorResponse,
-    SyncCursor, SyncEntity, SyncError,
-    UploadBatchRequest, UploadBatchResponse,
-    Timestamp as ProtoTimestamp,
+    sync_service_server::SyncService, AcknowledgeUpdatesRequest, AcknowledgeUpdatesResponse,
+    EntityUpdate, GetPendingUpdatesRequest, GetSyncStatusRequest, GetSyncStatusResponse,
+    ReportCursorRequest, ReportCursorResponse, SyncCursor, SyncEntity, SyncError,
+    Timestamp as ProtoTimestamp, UploadBatchRequest, UploadBatchResponse,
 };
 use crate::AppState;
 
@@ -39,7 +35,7 @@ impl SyncServiceImpl {
             state.config.jwt_access_lifetime_secs,
             state.config.jwt_refresh_lifetime_secs,
         );
-        
+
         SyncServiceImpl { state, jwt_manager }
     }
 
@@ -54,7 +50,8 @@ impl SyncServiceImpl {
         let token = extract_bearer_token(auth_header)
             .ok_or_else(|| Status::unauthenticated("Invalid authorization header"))?;
 
-        let claims = self.jwt_manager
+        let claims = self
+            .jwt_manager
             .validate_access_token(token)
             .map_err(|e| Status::unauthenticated(e.to_string()))?;
 
@@ -101,7 +98,7 @@ impl SyncServiceImpl {
                 });
             }
         }
-        
+
         Ok(())
     }
 
@@ -133,12 +130,16 @@ impl SyncServiceImpl {
             completed_at,
         };
 
-        self.state.db.insert_sale(&record).await.map_err(|e| SyncError {
-            entity_id: sale.id.clone(),
-            error_code: "DB_ERROR".to_string(),
-            error_message: e.to_string(),
-            retryable: true,
-        })?;
+        self.state
+            .db
+            .insert_sale(&record)
+            .await
+            .map_err(|e| SyncError {
+                entity_id: sale.id.clone(),
+                error_code: "DB_ERROR".to_string(),
+                error_message: e.to_string(),
+                retryable: true,
+            })?;
 
         Ok(())
     }
@@ -162,12 +163,16 @@ impl SyncServiceImpl {
             tax_rate_bps: item.tax_rate_bps,
         };
 
-        self.state.db.insert_sale_item(&record).await.map_err(|e| SyncError {
-            entity_id: item.id.clone(),
-            error_code: "DB_ERROR".to_string(),
-            error_message: e.to_string(),
-            retryable: true,
-        })?;
+        self.state
+            .db
+            .insert_sale_item(&record)
+            .await
+            .map_err(|e| SyncError {
+                entity_id: item.id.clone(),
+                error_code: "DB_ERROR".to_string(),
+                error_message: e.to_string(),
+                retryable: true,
+            })?;
 
         Ok(())
     }
@@ -188,17 +193,29 @@ impl SyncServiceImpl {
             method: payment.method.clone(),
             amount_cents: payment.amount.as_ref().map(|m| m.cents).unwrap_or(0),
             change_given_cents: payment.change_given.as_ref().map(|m| m.cents).unwrap_or(0),
-            reference: if payment.reference.is_empty() { None } else { Some(payment.reference.clone()) },
-            authorization_code: if payment.authorization_code.is_empty() { None } else { Some(payment.authorization_code.clone()) },
+            reference: if payment.reference.is_empty() {
+                None
+            } else {
+                Some(payment.reference.clone())
+            },
+            authorization_code: if payment.authorization_code.is_empty() {
+                None
+            } else {
+                Some(payment.authorization_code.clone())
+            },
             created_at,
         };
 
-        self.state.db.insert_payment(&record).await.map_err(|e| SyncError {
-            entity_id: payment.id.clone(),
-            error_code: "DB_ERROR".to_string(),
-            error_message: e.to_string(),
-            retryable: true,
-        })?;
+        self.state
+            .db
+            .insert_payment(&record)
+            .await
+            .map_err(|e| SyncError {
+                entity_id: payment.id.clone(),
+                error_code: "DB_ERROR".to_string(),
+                error_message: e.to_string(),
+                retryable: true,
+            })?;
 
         Ok(())
     }
@@ -219,16 +236,24 @@ impl SyncServiceImpl {
             product_id: delta.product_id.clone(),
             delta: delta.delta,
             reason: delta.reason.clone(),
-            reference_id: if delta.reference_id.is_empty() { None } else { Some(delta.reference_id.clone()) },
+            reference_id: if delta.reference_id.is_empty() {
+                None
+            } else {
+                Some(delta.reference_id.clone())
+            },
             created_at,
         };
 
-        self.state.db.apply_inventory_delta(&record).await.map_err(|e| SyncError {
-            entity_id: delta.id.clone(),
-            error_code: "DB_ERROR".to_string(),
-            error_message: e.to_string(),
-            retryable: true,
-        })?;
+        self.state
+            .db
+            .apply_inventory_delta(&record)
+            .await
+            .map_err(|e| SyncError {
+                entity_id: delta.id.clone(),
+                error_code: "DB_ERROR".to_string(),
+                error_message: e.to_string(),
+                retryable: true,
+            })?;
 
         Ok(())
     }
@@ -272,7 +297,9 @@ impl SyncService for SyncServiceImpl {
 
         // Update cursors
         for cursor in &req.cursors {
-            if let Err(e) = self.state.db
+            if let Err(e) = self
+                .state
+                .db
                 .update_sync_cursor(&auth.store_id, &cursor.stream, cursor.position)
                 .await
             {
@@ -281,7 +308,7 @@ impl SyncService for SyncServiceImpl {
         }
 
         let success = errors.is_empty();
-        
+
         info!(
             store_id = %auth.store_id,
             batch_id = %req.batch_id,
@@ -299,7 +326,8 @@ impl SyncService for SyncServiceImpl {
         }))
     }
 
-    type StreamUploadStream = Pin<Box<dyn Stream<Item = Result<UploadBatchResponse, Status>> + Send>>;
+    type StreamUploadStream =
+        Pin<Box<dyn Stream<Item = Result<UploadBatchResponse, Status>> + Send>>;
 
     /// Stream upload for large batches.
     async fn stream_upload(
@@ -315,7 +343,7 @@ impl SyncService for SyncServiceImpl {
             state.config.jwt_access_lifetime_secs,
             state.config.jwt_refresh_lifetime_secs,
         );
-        
+
         let (tx, rx) = mpsc::channel(32);
 
         tokio::spawn(async move {
@@ -336,7 +364,7 @@ impl SyncService for SyncServiceImpl {
                                     state.config.jwt_refresh_lifetime_secs,
                                 ),
                             };
-                            
+
                             match service.process_entity(&auth, entity).await {
                                 Ok(()) => synced_ids.push(entity.entity_id.clone()),
                                 Err(e) => errors.push(e),
@@ -384,7 +412,9 @@ impl SyncService for SyncServiceImpl {
         );
 
         // Fetch pending product updates
-        let products = self.state.db
+        let products = self
+            .state
+            .db
             .get_pending_product_updates(&auth.store_id, since_version, limit)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -460,7 +490,8 @@ impl SyncService for SyncServiceImpl {
 
         // Update cursor if provided
         if let Some(cursor) = req.new_cursor {
-            self.state.db
+            self.state
+                .db
                 .update_sync_cursor(&auth.store_id, &cursor.stream, cursor.position)
                 .await
                 .map_err(|e| Status::internal(e.to_string()))?;
@@ -477,12 +508,16 @@ impl SyncService for SyncServiceImpl {
         let auth = self.authenticate(&request)?;
 
         // Get cursor positions
-        let upload_cursor = self.state.db
+        let upload_cursor = self
+            .state
+            .db
             .get_sync_cursor(&auth.store_id, "upload")
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let download_cursor = self.state.db
+        let download_cursor = self
+            .state
+            .db
             .get_sync_cursor(&auth.store_id, "download")
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -521,12 +556,15 @@ impl SyncService for SyncServiceImpl {
         let auth = self.authenticate(&request)?;
         let req = request.into_inner();
 
-        self.state.db
+        self.state
+            .db
             .update_sync_cursor(&auth.store_id, &req.stream, req.position)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let server_position = self.state.db
+        let server_position = self
+            .state
+            .db
             .get_sync_cursor(&auth.store_id, &req.stream)
             .await
             .map_err(|e| Status::internal(e.to_string()))?

@@ -131,14 +131,14 @@ pub mod hub;
 pub mod hub_core;
 
 // Cloud Uplink modules (Milestone 3)
-pub mod proto;
 pub mod cloud_auth;
 pub mod cloud_uplink;
 pub mod cloud_uplink_adapter;
+pub mod proto;
 
 // Multi-Store modules (Milestone 4)
-pub mod store_db;
 pub mod store_aggregator;
+pub mod store_db;
 
 // =============================================================================
 // Re-exports
@@ -146,7 +146,10 @@ pub mod store_aggregator;
 
 // Core types
 pub use agent::{SyncAgent, SyncAgentHandle, SyncEventEmitter, SyncStatus};
-pub use config::{AggregationSettings, BroadcastMode, CrossStoreVisibility, FailoverSettings, HubSettings, SyncConfig, SyncMode};
+pub use config::{
+    AggregationSettings, BroadcastMode, CrossStoreVisibility, FailoverSettings, HubSettings,
+    SyncConfig, SyncMode,
+};
 pub use error::{SyncError, SyncResult};
 pub use protocol::SyncMessage;
 pub use transport::ConnectionState;
@@ -156,7 +159,7 @@ pub use aggregator::{AggregatorConfig, AggregatorHandle, InventoryAggregator};
 pub use discovery::{DiscoveredHub, DiscoveryConfig, DiscoveryHandle, DiscoveryService};
 pub use election::{ElectionConfig, ElectionHandle, ElectionService, ElectionState, NodeRole};
 pub use hub::{HubConfig, HubHandle, HubServer};
-pub use hub_core::{HubCore, HubStats, CloudUplinkCallback, ConnectedClient, NoOpCloudUplink};
+pub use hub_core::{CloudUplinkCallback, ConnectedClient, HubCore, HubStats, NoOpCloudUplink};
 
 // Milestone 3 types
 pub use cloud_auth::{CloudAuth, CloudAuthConfig, TokenInfo};
@@ -164,6 +167,5 @@ pub use cloud_uplink::{CloudUplink, CloudUplinkConfig};
 pub use cloud_uplink_adapter::CloudUplinkAdapter;
 
 // Milestone 4 types
+pub use store_aggregator::{AggregationEvent, StoreAggregator, StoreAggregatorHandle};
 pub use store_db::StoreDatabase;
-pub use store_aggregator::{StoreAggregator, StoreAggregatorHandle, AggregationEvent};
-

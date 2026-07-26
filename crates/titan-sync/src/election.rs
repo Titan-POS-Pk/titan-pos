@@ -209,9 +209,17 @@ pub enum ElectionCommand {
     /// Trigger a new election.
     TriggerElection,
     /// Record a heartbeat from PRIMARY.
-    RecordHeartbeat { device_id: String, term: u64, url: String },
+    RecordHeartbeat {
+        device_id: String,
+        term: u64,
+        url: String,
+    },
     /// Handle a DEMOTE message (old primary being told to step down).
-    HandleDemote { new_primary_id: String, term: u64, new_primary_url: String },
+    HandleDemote {
+        new_primary_id: String,
+        term: u64,
+        new_primary_url: String,
+    },
     /// Shutdown the election service.
     Shutdown,
 }
@@ -249,9 +257,18 @@ impl ElectionHandle {
     }
 
     /// Records a heartbeat from the PRIMARY.
-    pub async fn record_heartbeat(&self, device_id: String, term: u64, url: String) -> SyncResult<()> {
+    pub async fn record_heartbeat(
+        &self,
+        device_id: String,
+        term: u64,
+        url: String,
+    ) -> SyncResult<()> {
         self.cmd_tx
-            .send(ElectionCommand::RecordHeartbeat { device_id, term, url })
+            .send(ElectionCommand::RecordHeartbeat {
+                device_id,
+                term,
+                url,
+            })
             .await
             .map_err(|_| SyncError::ChannelError("Election command channel closed".into()))
     }
@@ -441,7 +458,8 @@ impl ElectionService {
                     term,
                     new_primary_url,
                 }) => {
-                    self.handle_demote(new_primary_id, term, new_primary_url).await;
+                    self.handle_demote(new_primary_id, term, new_primary_url)
+                        .await;
                     Wait::Elapsed
                 }
                 Event::HeartbeatCheck => self.check_heartbeat_timeout(&mut cmd_rx).await,
@@ -510,7 +528,10 @@ impl ElectionService {
     }
 
     /// Performs discovery and potentially starts an election.
-    async fn do_discovery_and_election(&self, cmd_rx: &mut mpsc::Receiver<ElectionCommand>) -> Wait {
+    async fn do_discovery_and_election(
+        &self,
+        cmd_rx: &mut mpsc::Receiver<ElectionCommand>,
+    ) -> Wait {
         debug!("Running discovery scan");
 
         match discover_hubs(&self.config.discovery_config, &self.sync_config).await {
@@ -522,11 +543,9 @@ impl ElectionService {
                     // Find the best hub
                     let best_hub = hubs
                         .iter()
-                        .max_by(|a, b| {
-                            match a.priority.cmp(&b.priority) {
-                                std::cmp::Ordering::Equal => b.device_id.cmp(&a.device_id),
-                                other => other,
-                            }
+                        .max_by(|a, b| match a.priority.cmp(&b.priority) {
+                            std::cmp::Ordering::Equal => b.device_id.cmp(&a.device_id),
+                            other => other,
                         });
 
                     match best_hub {
@@ -551,7 +570,10 @@ impl ElectionService {
                 }
             }
             Err(e) => {
-                warn!(?e, "Discovery failed - assuming we're alone, becoming PRIMARY");
+                warn!(
+                    ?e,
+                    "Discovery failed - assuming we're alone, becoming PRIMARY"
+                );
                 self.run_election(cmd_rx).await
             }
         }
@@ -616,7 +638,10 @@ impl ElectionService {
             // No one else claimed PRIMARY - we win!
             self.become_primary(cmd_rx).await
         } else {
-            info!(term = new_term, "Lost election - another node claimed PRIMARY");
+            info!(
+                term = new_term,
+                "Lost election - another node claimed PRIMARY"
+            );
             Wait::Elapsed
         }
     }

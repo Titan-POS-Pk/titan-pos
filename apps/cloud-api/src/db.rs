@@ -58,7 +58,7 @@ impl Database {
                 created_at, updated_at
             FROM stores
             WHERE id = $1 AND tenant_id = $2 AND is_active = true
-            "#
+            "#,
         )
         .bind(store_id)
         .bind(tenant_id)
@@ -85,7 +85,7 @@ impl Database {
                 created_at, updated_at
             FROM stores
             WHERE id = $1
-            "#
+            "#,
         )
         .bind(store_id)
         .fetch_optional(&self.pool)
@@ -112,7 +112,7 @@ impl Database {
                 status = EXCLUDED.status,
                 completed_at = EXCLUDED.completed_at,
                 updated_at = NOW()
-            "#
+            "#,
         )
         .bind(&sale.id)
         .bind(&sale.store_id)
@@ -143,7 +143,7 @@ impl Database {
                 tax_amount_cents, tax_rate_bps
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO NOTHING
-            "#
+            "#,
         )
         .bind(&item.id)
         .bind(&item.sale_id)
@@ -172,7 +172,7 @@ impl Database {
                 created_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO NOTHING
-            "#
+            "#,
         )
         .bind(&payment.id)
         .bind(&payment.sale_id)
@@ -192,7 +192,10 @@ impl Database {
     }
 
     /// Apply an inventory delta (CRDT merge).
-    pub async fn apply_inventory_delta(&self, delta: &InventoryDeltaRecord) -> Result<(), CloudError> {
+    pub async fn apply_inventory_delta(
+        &self,
+        delta: &InventoryDeltaRecord,
+    ) -> Result<(), CloudError> {
         // Insert the delta record
         sqlx::query(
             r#"
@@ -201,7 +204,7 @@ impl Database {
                 delta, reason, reference_id, created_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (id) DO NOTHING
-            "#
+            "#,
         )
         .bind(&delta.id)
         .bind(&delta.store_id)
@@ -224,7 +227,7 @@ impl Database {
             ON CONFLICT (store_id, product_id) DO UPDATE SET
                 current_stock = inventory.current_stock + EXCLUDED.current_stock,
                 updated_at = NOW()
-            "#
+            "#,
         )
         .bind(&delta.store_id)
         .bind(&delta.product_id)
@@ -245,7 +248,7 @@ impl Database {
         limit: i32,
     ) -> Result<Vec<ProductRecord>, CloudError> {
         let limit = if limit <= 0 { 100 } else { limit };
-        
+
         let results = sqlx::query_as::<_, ProductRecord>(
             r#"
             SELECT 
@@ -259,7 +262,7 @@ impl Database {
               AND version > $2
             ORDER BY version ASC
             LIMIT $3
-            "#
+            "#,
         )
         .bind(store_id)
         .bind(since_version)
@@ -285,7 +288,7 @@ impl Database {
             ON CONFLICT (store_id, stream) DO UPDATE SET
                 position = EXCLUDED.position,
                 updated_at = NOW()
-            "#
+            "#,
         )
         .bind(store_id)
         .bind(stream)
@@ -307,7 +310,7 @@ impl Database {
             r#"
             SELECT position FROM sync_cursors
             WHERE store_id = $1 AND stream = $2
-            "#
+            "#,
         )
         .bind(store_id)
         .bind(stream)
@@ -323,7 +326,10 @@ impl Database {
     // =========================================================================
 
     /// Get store configuration.
-    pub async fn get_store_config(&self, store_id: &str) -> Result<Option<StoreConfigRecord>, CloudError> {
+    pub async fn get_store_config(
+        &self,
+        store_id: &str,
+    ) -> Result<Option<StoreConfigRecord>, CloudError> {
         let result = sqlx::query_as::<_, StoreConfigRecord>(
             r#"
             SELECT 
@@ -333,7 +339,7 @@ impl Database {
                 sync_batch_size, sync_interval_secs
             FROM store_configs
             WHERE store_id = $1
-            "#
+            "#,
         )
         .bind(store_id)
         .fetch_optional(&self.pool)
@@ -465,12 +471,12 @@ pub struct StoreConfigRecord {
 /// Verify an API key against its hash.
 fn verify_api_key(api_key: &str, hash: &str) -> bool {
     use argon2::{Argon2, PasswordHash, PasswordVerifier};
-    
+
     let parsed_hash = match PasswordHash::new(hash) {
         Ok(h) => h,
         Err(_) => return false,
     };
-    
+
     Argon2::default()
         .verify_password(api_key.as_bytes(), &parsed_hash)
         .is_ok()
@@ -482,13 +488,13 @@ pub fn hash_api_key(api_key: &str) -> Result<String, CloudError> {
         password_hash::{rand_core::OsRng, SaltString},
         Argon2, PasswordHasher,
     };
-    
+
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
-    
+
     let hash = argon2
         .hash_password(api_key.as_bytes(), &salt)
         .map_err(|e| CloudError::Internal(format!("Failed to hash API key: {}", e)))?;
-    
+
     Ok(hash.to_string())
 }

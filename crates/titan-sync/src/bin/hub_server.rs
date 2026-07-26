@@ -69,9 +69,8 @@ use tracing_subscriber::FmtSubscriber;
 
 // Import from titan_sync library
 use titan_sync::{
-    HubCore, CloudUplinkCallback,
-    CloudUplink, CloudUplinkConfig, CloudUplinkAdapter,
-    protocol::{SyncMessage, HelloPayload, WelcomePayload},
+    protocol::{HelloPayload, SyncMessage, WelcomePayload},
+    CloudUplink, CloudUplinkAdapter, CloudUplinkCallback, CloudUplinkConfig, HubCore,
 };
 
 // =============================================================================
@@ -120,7 +119,8 @@ async fn health_handler() -> impl IntoResponse {
 
 async fn stats_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let stats = state.hub.stats().await;
-    serde_json::to_string(&stats).unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
+    serde_json::to_string(&stats)
+        .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
 }
 
 async fn ws_handler(
@@ -149,12 +149,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, addr: SocketAddr
     let client_store_id = hello.store_id.clone();
 
     // Register client with HubCore (validates store_id internally)
-    let (_client_tx, mut client_rx, mut broadcast_rx) = match state.hub.register_client(
-        &device_id,
-        &device_name,
-        &client_store_id,
-        addr,
-    ).await {
+    let (_client_tx, mut client_rx, mut broadcast_rx) = match state
+        .hub
+        .register_client(&device_id, &device_name, &client_store_id, addr)
+        .await
+    {
         Ok(channels) => channels,
         Err(e) => {
             warn!(
@@ -194,7 +193,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, addr: SocketAddr
     // Message handling loop
     let device_id_clone = device_id.clone();
     let state_clone = state.clone();
-    
+
     loop {
         tokio::select! {
             // Message from client
@@ -261,7 +260,9 @@ async fn wait_for_hello(
         Err("Connection closed before Hello".to_string())
     });
 
-    timeout.await.map_err(|_| "Timeout waiting for Hello".to_string())?
+    timeout
+        .await
+        .map_err(|_| "Timeout waiting for Hello".to_string())?
 }
 
 async fn handle_client_message(
@@ -270,13 +271,13 @@ async fn handle_client_message(
     text: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let msg: SyncMessage = serde_json::from_str(text)?;
-    
+
     // Delegate to HubCore for message handling
     if let Some(response) = state.hub.handle_message(device_id, msg).await? {
         // Send response back to the client
         state.hub.send_to_client(device_id, &response).await?;
     }
-    
+
     Ok(())
 }
 
@@ -307,21 +308,25 @@ async fn setup_cloud_uplink(config: &ServerConfig) -> Option<Arc<dyn CloudUplink
     };
 
     match CloudUplink::new(uplink_config) {
-        Ok(mut uplink) => {
-            match uplink.connect().await {
-                Ok(()) => {
-                    info!("✅ Connected to cloud API");
-                    let adapter = CloudUplinkAdapter::new(uplink);
-                    Some(Arc::new(adapter) as Arc<dyn CloudUplinkCallback>)
-                }
-                Err(e) => {
-                    error!(?e, "❌ Failed to connect to cloud API - running without cloud sync");
-                    None
-                }
+        Ok(mut uplink) => match uplink.connect().await {
+            Ok(()) => {
+                info!("✅ Connected to cloud API");
+                let adapter = CloudUplinkAdapter::new(uplink);
+                Some(Arc::new(adapter) as Arc<dyn CloudUplinkCallback>)
             }
-        }
+            Err(e) => {
+                error!(
+                    ?e,
+                    "❌ Failed to connect to cloud API - running without cloud sync"
+                );
+                None
+            }
+        },
         Err(e) => {
-            error!(?e, "❌ Failed to create cloud uplink - running without cloud sync");
+            error!(
+                ?e,
+                "❌ Failed to create cloud uplink - running without cloud sync"
+            );
             None
         }
     }
@@ -415,7 +420,9 @@ fn print_help() {
     println!("        --api-key demo-api-key");
     println!();
     println!("Then connect POS terminals:");
-    println!("    TITAN_SYNC_MODE=secondary TITAN_HUB_URL=\"ws://192.168.1.100:8765/ws\" pnpm tauri dev");
+    println!(
+        "    TITAN_SYNC_MODE=secondary TITAN_HUB_URL=\"ws://192.168.1.100:8765/ws\" pnpm tauri dev"
+    );
 }
 
 // =============================================================================
@@ -447,7 +454,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Setup cloud uplink if configured
     let cloud_uplink = setup_cloud_uplink(&config).await;
-    
+
     // Create hub core with or without cloud uplink
     let hub = if let Some(uplink) = cloud_uplink {
         info!("🌐 Cloud sync enabled");
@@ -471,15 +478,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start server
     let addr = format!("{}:{}", config.bind_addr, config.port);
     let listener = TcpListener::bind(&addr).await?;
-    
+
     info!(addr = %addr, "Hub server listening");
-    info!("WebSocket endpoint: ws://{}:{}/ws", config.bind_addr, config.port);
-    info!("Health endpoint: http://{}:{}/health", config.bind_addr, config.port);
-    info!("Stats endpoint: http://{}:{}/stats", config.bind_addr, config.port);
+    info!(
+        "WebSocket endpoint: ws://{}:{}/ws",
+        config.bind_addr, config.port
+    );
+    info!(
+        "Health endpoint: http://{}:{}/health",
+        config.bind_addr, config.port
+    );
+    info!(
+        "Stats endpoint: http://{}:{}/stats",
+        config.bind_addr, config.port
+    );
     info!("");
     info!("Connect POS terminals with:");
-    info!("  TITAN_SYNC_MODE=secondary TITAN_HUB_URL=\"ws://{}:{}/ws\" pnpm tauri dev", 
-        if config.bind_addr == "0.0.0.0" { "<YOUR_IP>" } else { &config.bind_addr }, 
+    info!(
+        "  TITAN_SYNC_MODE=secondary TITAN_HUB_URL=\"ws://{}:{}/ws\" pnpm tauri dev",
+        if config.bind_addr == "0.0.0.0" {
+            "<YOUR_IP>"
+        } else {
+            &config.bind_addr
+        },
         config.port
     );
 

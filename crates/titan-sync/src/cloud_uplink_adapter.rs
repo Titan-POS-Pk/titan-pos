@@ -39,17 +39,15 @@
 //! let hub = HubCore::with_cloud_uplink("store-id".into(), Arc::new(adapter));
 //! ```
 
-use std::sync::Arc;
 use async_trait::async_trait;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::cloud_uplink::CloudUplink;
 use crate::error::SyncResult;
 use crate::hub_core::CloudUplinkCallback;
-use crate::proto::{
-    sync_entity, SyncEntity, InventoryDelta as ProtoInventoryDelta, Timestamp,
-};
+use crate::proto::{sync_entity, InventoryDelta as ProtoInventoryDelta, SyncEntity, Timestamp};
 
 /// Adapter that wraps CloudUplink (gRPC client) and implements CloudUplinkCallback.
 ///
@@ -129,7 +127,12 @@ impl CloudUplinkCallback for CloudUplinkAdapter {
     ///
     /// Creates a SyncEntity from the provided data and either buffers it
     /// or uploads immediately depending on configuration.
-    async fn sync_entity(&self, entity_type: &str, entity_id: &str, _payload: &str) -> SyncResult<()> {
+    async fn sync_entity(
+        &self,
+        entity_type: &str,
+        entity_id: &str,
+        _payload: &str,
+    ) -> SyncResult<()> {
         info!(
             entity_type = %entity_type,
             entity_id = %entity_id,
@@ -140,7 +143,7 @@ impl CloudUplinkCallback for CloudUplinkAdapter {
         // Note: For generic JSON payloads, we'd need to add a GenericJson variant to the proto.
         // For now, we'll skip entities that don't have a specific proto type.
         // Sales, Payments, and InventoryDeltas have their own types.
-        
+
         // This is a simplified implementation - in production, you'd parse the payload
         // and create the appropriate proto type based on entity_type
         let entity = SyncEntity {
@@ -150,13 +153,13 @@ impl CloudUplinkCallback for CloudUplinkAdapter {
                 value: chrono::Utc::now().to_rfc3339(),
             }),
             device_sequence: 0, // Would be tracked per-device in production
-            data: None, // Generic JSON not supported in current proto
+            data: None,         // Generic JSON not supported in current proto
         };
 
         if self.buffer_enabled {
             let mut buffer = self.buffer.write().await;
             buffer.push(entity);
-            
+
             if buffer.len() >= self.buffer_threshold {
                 drop(buffer);
                 self.flush().await?;
@@ -189,7 +192,7 @@ impl CloudUplinkCallback for CloudUplinkAdapter {
         );
 
         let delta_id = uuid::Uuid::new_v4().to_string();
-        
+
         let entity = SyncEntity {
             entity_id: delta_id.clone(),
             entity_type: "INVENTORY_DELTA".to_string(),
@@ -214,7 +217,7 @@ impl CloudUplinkCallback for CloudUplinkAdapter {
         if self.buffer_enabled {
             let mut buffer = self.buffer.write().await;
             buffer.push(entity);
-            
+
             if buffer.len() >= self.buffer_threshold {
                 drop(buffer);
                 self.flush().await?;
@@ -255,11 +258,13 @@ mod tests {
 
         let adapter = CloudUplinkAdapter::new(uplink);
 
-        let result = adapter.sync_entity(
-            "SALE",
-            "test-sale-123",
-            r#"{"id": "test-sale-123", "total": 1000}"#,
-        ).await;
+        let result = adapter
+            .sync_entity(
+                "SALE",
+                "test-sale-123",
+                r#"{"id": "test-sale-123", "total": 1000}"#,
+            )
+            .await;
 
         assert!(result.is_ok());
     }

@@ -250,7 +250,9 @@ impl Cart {
     pub fn tax_cents(&self) -> i64 {
         self.items
             .iter()
-            .fold(Money::zero(), |acc, i| acc + Money::from_cents(i.tax_cents()))
+            .fold(Money::zero(), |acc, i| {
+                acc + Money::from_cents(i.tax_cents())
+            })
             .cents()
     }
 

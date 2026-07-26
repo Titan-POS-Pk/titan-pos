@@ -137,7 +137,10 @@ impl OutboxProcessor {
             shutdown_rx,
         };
 
-        let handle = OutboxProcessorHandle { shutdown_tx, ack_tx };
+        let handle = OutboxProcessorHandle {
+            shutdown_tx,
+            ack_tx,
+        };
 
         (processor, handle)
     }
@@ -201,8 +204,9 @@ impl OutboxProcessor {
         info!(count = entries.len(), "Processing outbox batch");
 
         // Filter out entries that have exceeded max retries
-        let (processable, skipped): (Vec<_>, Vec<_>) =
-            entries.into_iter().partition(|e| e.attempts < MAX_RETRY_ATTEMPTS);
+        let (processable, skipped): (Vec<_>, Vec<_>) = entries
+            .into_iter()
+            .partition(|e| e.attempts < MAX_RETRY_ATTEMPTS);
 
         // Log skipped entries
         for entry in skipped {
@@ -280,7 +284,12 @@ impl OutboxProcessor {
                 failed.error, failed.retryable
             );
 
-            if let Err(e) = self.db.sync_outbox().mark_failed(&failed.id, &error_msg).await {
+            if let Err(e) = self
+                .db
+                .sync_outbox()
+                .mark_failed(&failed.id, &error_msg)
+                .await
+            {
                 error!(?e, id = %failed.id, "Failed to mark entry as failed");
             }
 

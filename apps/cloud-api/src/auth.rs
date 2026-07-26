@@ -14,22 +14,22 @@ use crate::error::CloudError;
 pub struct Claims {
     /// Subject (store_id)
     pub sub: String,
-    
+
     /// Tenant ID
     pub tenant_id: String,
-    
+
     /// Device ID that requested the token
     pub device_id: String,
-    
+
     /// Issued at (Unix timestamp)
     pub iat: i64,
-    
+
     /// Expiration (Unix timestamp)
     pub exp: i64,
-    
+
     /// JWT ID (unique identifier for this token)
     pub jti: String,
-    
+
     /// Token type ("access" or "refresh")
     pub token_type: String,
 }
@@ -110,7 +110,7 @@ impl JwtManager {
     /// Validate and decode a token.
     pub fn validate_token(&self, token: &str) -> Result<Claims, CloudError> {
         let validation = Validation::default();
-        
+
         let token_data: TokenData<Claims> = decode(
             token,
             &DecodingKey::from_secret(self.secret.as_bytes()),
@@ -124,7 +124,7 @@ impl JwtManager {
     /// Validate that a token is an access token.
     pub fn validate_access_token(&self, token: &str) -> Result<Claims, CloudError> {
         let claims = self.validate_token(token)?;
-        
+
         if claims.token_type != "access" {
             return Err(CloudError::AuthFailed("Expected access token".to_string()));
         }
@@ -135,7 +135,7 @@ impl JwtManager {
     /// Validate that a token is a refresh token.
     pub fn validate_refresh_token(&self, token: &str) -> Result<Claims, CloudError> {
         let claims = self.validate_token(token)?;
-        
+
         if claims.token_type != "refresh" {
             return Err(CloudError::AuthFailed("Expected refresh token".to_string()));
         }
@@ -163,13 +163,13 @@ mod tests {
     #[test]
     fn test_jwt_roundtrip() {
         let manager = JwtManager::new("test-secret".to_string(), 3600, 86400);
-        
+
         let access_token = manager
             .generate_access_token("store-001", "tenant-001", "device-001")
             .unwrap();
-        
+
         let claims = manager.validate_access_token(&access_token).unwrap();
-        
+
         assert_eq!(claims.sub, "store-001");
         assert_eq!(claims.tenant_id, "tenant-001");
         assert_eq!(claims.device_id, "device-001");
@@ -179,11 +179,11 @@ mod tests {
     #[test]
     fn test_refresh_token() {
         let manager = JwtManager::new("test-secret".to_string(), 3600, 86400);
-        
+
         let refresh_token = manager
             .generate_refresh_token("store-001", "tenant-001", "device-001")
             .unwrap();
-        
+
         let claims = manager.validate_refresh_token(&refresh_token).unwrap();
         assert_eq!(claims.token_type, "refresh");
     }
@@ -191,11 +191,11 @@ mod tests {
     #[test]
     fn test_wrong_token_type() {
         let manager = JwtManager::new("test-secret".to_string(), 3600, 86400);
-        
+
         let access_token = manager
             .generate_access_token("store-001", "tenant-001", "device-001")
             .unwrap();
-        
+
         // Try to validate access token as refresh token
         let result = manager.validate_refresh_token(&access_token);
         assert!(result.is_err());

@@ -196,9 +196,16 @@ enum AggregatorCommand {
 
 impl AggregatorHandle {
     /// Processes an inventory delta.
-    pub async fn process_delta(&self, source_device: String, delta: InventoryDelta) -> SyncResult<()> {
+    pub async fn process_delta(
+        &self,
+        source_device: String,
+        delta: InventoryDelta,
+    ) -> SyncResult<()> {
         self.cmd_tx
-            .send(AggregatorCommand::ProcessDelta { source_device, delta })
+            .send(AggregatorCommand::ProcessDelta {
+                source_device,
+                delta,
+            })
             .await
             .map_err(|_| SyncError::ChannelError("Aggregator channel closed".into()))
     }
@@ -295,7 +302,10 @@ impl InventoryAggregator {
                 // Force flush if too many pending
                 let pending_count = self.pending.read().await.len();
                 if pending_count >= MAX_PENDING_DELTAS {
-                    warn!(count = pending_count, "Too many pending deltas - forcing flush");
+                    warn!(
+                        count = pending_count,
+                        "Too many pending deltas - forcing flush"
+                    );
                     self.flush_pending().await;
                 }
             }
@@ -365,7 +375,8 @@ impl InventoryAggregator {
                 timestamp: chrono::Utc::now().to_rfc3339(),
             };
 
-            self.broadcast_delta(&delta, &pending_delta.source_device).await;
+            self.broadcast_delta(&delta, &pending_delta.source_device)
+                .await;
         }
     }
 
@@ -416,8 +427,14 @@ impl DeltaProcessor {
                     // Process each entity in the batch
                     for entity in batch.entities {
                         if entity.entity_type == "InventoryDelta" {
-                            if let Ok(delta) = serde_json::from_str::<InventoryDelta>(&entity.payload) {
-                                if let Err(e) = self.aggregator.process_delta(device_id.clone(), delta).await {
+                            if let Ok(delta) =
+                                serde_json::from_str::<InventoryDelta>(&entity.payload)
+                            {
+                                if let Err(e) = self
+                                    .aggregator
+                                    .process_delta(device_id.clone(), delta)
+                                    .await
+                                {
                                     error!(?e, "Failed to process delta from batch");
                                 }
                             }

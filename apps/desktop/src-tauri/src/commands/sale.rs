@@ -12,7 +12,7 @@ use titan_core::{Payment, PaymentMethod, Sale, SaleItem, SaleStatus};
 use titan_db::Database;
 
 /// Event payload for inventory updates.
-/// 
+///
 /// Emitted when stock levels change so the frontend can refresh product displays.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -210,9 +210,9 @@ pub async fn add_payment(
         id: payment_id.clone(),
         sale_id: sale_id.clone(),
         method: payment_method,
-        amount_cents: effective_amount,  // What applies to the sale
-        tendered_cents: Some(amount_cents),  // What was actually given
-        change_cents: if change > 0 { Some(change) } else { None },  // What to return
+        amount_cents: effective_amount,     // What applies to the sale
+        tendered_cents: Some(amount_cents), // What was actually given
+        change_cents: if change > 0 { Some(change) } else { None }, // What to return
         reference: None,
         created_at: Utc::now(),
     };
@@ -273,7 +273,10 @@ pub async fn finalize_sale(
             if product.track_inventory {
                 // Decrement stock by quantity sold (negative delta)
                 let delta = -(item.quantity as i32);
-                db_inner.products().update_stock(&item.product_id, delta).await?;
+                db_inner
+                    .products()
+                    .update_stock(&item.product_id, delta)
+                    .await?;
                 stock_changes.push((item.product_id.clone(), product.sku.clone(), delta));
                 debug!(product_id = %item.product_id, sku = %item.sku_snapshot, quantity = item.quantity, "Stock decremented");
             }
@@ -294,9 +297,10 @@ pub async fn finalize_sale(
             }
         }
     }
-    
+
     // Extract just product IDs for the local frontend event
-    let updated_product_ids: Vec<String> = stock_changes.iter().map(|(id, _, _)| id.clone()).collect();
+    let updated_product_ids: Vec<String> =
+        stock_changes.iter().map(|(id, _, _)| id.clone()).collect();
 
     // Emit inventory update event so frontend can refresh product displays
     if !updated_product_ids.is_empty() {
@@ -309,7 +313,10 @@ pub async fn finalize_sale(
         if let Err(e) = app_handle.emit("inventory:update", &event) {
             error!(?e, "Failed to emit inventory:update event");
         } else {
-            debug!(count = updated_product_ids.len(), "Emitted inventory:update event");
+            debug!(
+                count = updated_product_ids.len(),
+                "Emitted inventory:update event"
+            );
         }
     }
 

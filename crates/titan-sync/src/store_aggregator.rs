@@ -52,9 +52,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::AggregationSettings;
 use crate::error::{SyncError, SyncResult};
-use crate::protocol::{
-    AggregationSummary, SalesSummary,
-};
+use crate::protocol::{AggregationSummary, SalesSummary};
 use crate::store_db::StoreDatabase;
 
 // =============================================================================
@@ -348,7 +346,8 @@ impl StoreAggregator {
             "Store aggregator started"
         );
 
-        let mut batch_timer = interval(Duration::from_secs(self.settings.sales_batch_interval_secs));
+        let mut batch_timer =
+            interval(Duration::from_secs(self.settings.sales_batch_interval_secs));
         let mut last_daily_reset: Option<DateTime<Utc>> = None;
 
         loop {
@@ -399,16 +398,15 @@ impl StoreAggregator {
     ) {
         debug!(
             device_id,
-            product_id,
-            sku,
-            delta,
-            "Processing inventory delta"
+            product_id, sku, delta, "Processing inventory delta"
         );
 
         // Update in-memory cache
         let new_qty = {
             let mut cache = self.inventory_cache.write().await;
-            let entry = cache.entry(product_id.to_string()).or_insert((sku.to_string(), 0));
+            let entry = cache
+                .entry(product_id.to_string())
+                .or_insert((sku.to_string(), 0));
             entry.1 += delta;
             entry.1
         };
@@ -446,16 +444,20 @@ impl StoreAggregator {
     ) {
         debug!(
             device_id,
-            sale_id,
-            gross_cents,
-            item_count,
-            "Processing completed sale"
+            sale_id, gross_cents, item_count, "Processing completed sale"
         );
 
         // Add to pending aggregation
         {
             let mut pending = self.pending_sales.write().await;
-            pending.add_sale(gross_cents, tax_cents, net_cents, item_count, payments, timestamp);
+            pending.add_sale(
+                gross_cents,
+                tax_cents,
+                net_cents,
+                item_count,
+                payments,
+                timestamp,
+            );
         }
 
         // Update device activity
@@ -531,7 +533,10 @@ impl StoreAggregator {
         {
             error!(?e, "Failed to upsert sales summary");
             if let Some(id) = log_id {
-                let _ = self.store_db.log_aggregation_failed(id, &e.to_string()).await;
+                let _ = self
+                    .store_db
+                    .log_aggregation_failed(id, &e.to_string())
+                    .await;
             }
             return;
         }
@@ -558,13 +563,16 @@ impl StoreAggregator {
         }
 
         // Generate and broadcast summary
-        match self.store_db.generate_summary(&period_start_str, &period_end_str).await {
+        match self
+            .store_db
+            .generate_summary(&period_start_str, &period_end_str)
+            .await
+        {
             Ok(summary) => {
                 let _ = self.summary_tx.send(summary);
                 info!(
                     sale_count = pending.sale_count,
-                    duration_ms,
-                    "Sales aggregation flushed"
+                    duration_ms, "Sales aggregation flushed"
                 );
             }
             Err(e) => {

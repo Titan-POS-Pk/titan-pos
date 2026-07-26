@@ -9,10 +9,8 @@ use tracing::info;
 
 use crate::auth::{extract_bearer_token, JwtManager};
 use crate::proto::{
-    config_service_server::ConfigService,
-    GetConfigValueRequest, GetConfigValueResponse,
-    GetStoreConfigRequest, GetStoreConfigResponse,
-    StoreConfig as ProtoStoreConfig,
+    config_service_server::ConfigService, GetConfigValueRequest, GetConfigValueResponse,
+    GetStoreConfigRequest, GetStoreConfigResponse, StoreConfig as ProtoStoreConfig,
     UpdateConfigValueRequest, UpdateConfigValueResponse,
 };
 use crate::AppState;
@@ -31,12 +29,15 @@ impl ConfigServiceImpl {
             state.config.jwt_access_lifetime_secs,
             state.config.jwt_refresh_lifetime_secs,
         );
-        
+
         ConfigServiceImpl { state, jwt_manager }
     }
 
     /// Authenticate a request from metadata.
-    fn authenticate(&self, request: &Request<impl std::any::Any>) -> Result<(String, String), Status> {
+    fn authenticate(
+        &self,
+        request: &Request<impl std::any::Any>,
+    ) -> Result<(String, String), Status> {
         let auth_header = request
             .metadata()
             .get("authorization")
@@ -46,7 +47,8 @@ impl ConfigServiceImpl {
         let token = extract_bearer_token(auth_header)
             .ok_or_else(|| Status::unauthenticated("Invalid authorization header"))?;
 
-        let claims = self.jwt_manager
+        let claims = self
+            .jwt_manager
             .validate_access_token(token)
             .map_err(|e| Status::unauthenticated(e.to_string()))?;
 
@@ -66,12 +68,16 @@ impl ConfigService for ConfigServiceImpl {
 
         // Verify the requested store matches the authenticated store
         if req.store_id != store_id {
-            return Err(Status::permission_denied("Cannot access other store's configuration"));
+            return Err(Status::permission_denied(
+                "Cannot access other store's configuration",
+            ));
         }
 
         info!(store_id = %store_id, "Fetching store configuration");
 
-        let config = self.state.db
+        let config = self
+            .state
+            .db
             .get_store_config(&store_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -117,13 +123,17 @@ impl ConfigService for ConfigServiceImpl {
 
         // Verify the requested store matches the authenticated store
         if req.store_id != store_id {
-            return Err(Status::permission_denied("Cannot access other store's configuration"));
+            return Err(Status::permission_denied(
+                "Cannot access other store's configuration",
+            ));
         }
 
         info!(store_id = %store_id, key = %req.key, "Fetching config value");
 
         // Get the full config and extract the requested key
-        let config = self.state.db
+        let config = self
+            .state
+            .db
             .get_store_config(&store_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -145,7 +155,10 @@ impl ConfigService for ConfigServiceImpl {
             "sync_batch_size" => config.sync_batch_size.to_string(),
             "sync_interval_secs" => config.sync_interval_secs.to_string(),
             _ => {
-                return Err(Status::not_found(format!("Config key not found: {}", req.key)));
+                return Err(Status::not_found(format!(
+                    "Config key not found: {}",
+                    req.key
+                )));
             }
         };
 
@@ -166,13 +179,17 @@ impl ConfigService for ConfigServiceImpl {
 
         // Verify the requested store matches the authenticated store
         if req.store_id != store_id {
-            return Err(Status::permission_denied("Cannot modify other store's configuration"));
+            return Err(Status::permission_denied(
+                "Cannot modify other store's configuration",
+            ));
         }
 
         info!(store_id = %store_id, key = %req.key, "Updating config value");
 
         // For now, config updates from stores are not allowed
         // This would be implemented when we have admin functionality
-        Err(Status::permission_denied("Store config updates are managed by tenant administrators"))
+        Err(Status::permission_denied(
+            "Store config updates are managed by tenant administrators",
+        ))
     }
 }
