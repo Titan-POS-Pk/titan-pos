@@ -108,6 +108,13 @@ pub enum SyncMessage {
     /// Election result announcement.
     ElectionResult(ElectionResultPayload),
 
+    /// Demote message sent by new PRIMARY to old PRIMARY.
+    /// Used for split-brain prevention when old primary comes back online.
+    Demote(DemotePayload),
+
+    /// Store aggregation summary broadcast from PRIMARY.
+    AggregationSummary(AggregationSummary),
+
     // =========================================================================
     // Entity Update Messages
     // =========================================================================
@@ -394,6 +401,134 @@ pub struct ElectionResultPayload {
 }
 
 // =============================================================================
+// Demote Payload (Milestone 4 - Split-Brain Prevention)
+// =============================================================================
+
+/// Demote message sent by new PRIMARY to old PRIMARY.
+///
+/// When an old primary comes back online after network partition, the new primary
+/// sends a DEMOTE message to force it to step down and become SECONDARY.
+///
+/// ## Split-Brain Prevention Flow
+/// ```text
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                    Split-Brain Prevention                               │
+/// │                                                                         │
+/// │  1. PRIMARY A loses network briefly                                    │
+/// │  2. SECONDARY B triggers election, becomes PRIMARY (term 5)            │
+/// │  3. PRIMARY A comes back online (still thinks it's PRIMARY, term 4)    │
+/// │  4. PRIMARY B detects A's heartbeat with old term                      │
+/// │  5. PRIMARY B sends DEMOTE { new_primary: B, term: 5 }                 │
+/// │  6. PRIMARY A accepts (term 5 > 4), becomes SECONDARY                  │
+/// │  7. PRIMARY A reconnects to PRIMARY B                                  │
+/// │                                                                         │
+/// │  Fencing token (term) ensures stale primaries can't cause damage       │
+/// └─────────────────────────────────────────────────────────────────────────┘
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DemotePayload {
+    /// Device ID of the old primary being demoted.
+    pub demoted_device_id: String,
+
+    /// Device ID of the new primary.
+    pub new_primary_id: String,
+
+    /// Current election term (fencing token).
+    pub term: u64,
+
+    /// Hub URL of the new primary.
+    pub new_primary_url: String,
+
+    /// Reason for demotion.
+    pub reason: String,
+}
+
+// =============================================================================
+// Aggregation Summary (Milestone 4)
+// =============================================================================
+
+/// Store aggregation summary broadcast from PRIMARY.
+///
+/// Periodically broadcast to connected secondaries and uploaded to cloud.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregationSummary {
+    /// Store ID.
+    pub store_id: String,
+
+    /// Summary period start (ISO8601).
+    pub period_start: String,
+
+    /// Summary period end (ISO8601).
+    pub period_end: String,
+
+    /// Sales summary for the period.
+    pub sales: SalesSummary,
+
+    /// Payment breakdown by method.
+    pub payments: Vec<PaymentSummary>,
+
+    /// Top inventory movements (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_movers: Option<Vec<InventoryMover>>,
+}
+
+/// Sales summary for an aggregation period.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SalesSummary {
+    /// Number of completed sales.
+    pub count: u32,
+
+    /// Gross total (cents) before tax.
+    pub gross_cents: i64,
+
+    /// Total tax collected (cents).
+    pub tax_cents: i64,
+
+    /// Net total (cents) after tax.
+    pub net_cents: i64,
+
+    /// Number of items sold.
+    pub items_sold: u32,
+
+    /// Average transaction value (cents).
+    pub avg_transaction_cents: i64,
+}
+
+/// Payment summary by method.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentSummary {
+    /// Payment method (e.g., "cash", "card", "mobile").
+    pub method: String,
+
+    /// Number of transactions with this method.
+    pub count: u32,
+
+    /// Total amount (cents).
+    pub total_cents: i64,
+}
+
+/// Inventory mover for top-seller tracking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryMover {
+    /// Product ID.
+    pub product_id: String,
+
+    /// Product SKU.
+    pub sku: String,
+
+    /// Product name.
+    pub name: String,
+
+    /// Quantity sold (negative) or received (positive).
+    pub quantity_delta: i32,
+}
+
+// =============================================================================
 // Entity Update Payloads
 // =============================================================================
 
@@ -457,6 +592,8 @@ impl SyncMessage {
             SyncMessage::ElectionStart(_) => "ElectionStart",
             SyncMessage::ElectionVote(_) => "ElectionVote",
             SyncMessage::ElectionResult(_) => "ElectionResult",
+            SyncMessage::Demote(_) => "Demote",
+            SyncMessage::AggregationSummary(_) => "AggregationSummary",
             SyncMessage::EntityUpdate(_) => "EntityUpdate",
             SyncMessage::UpdateAck(_) => "UpdateAck",
             SyncMessage::Ping { .. } => "Ping",

@@ -87,6 +87,10 @@
 //! - [`cloud_auth`] - JWT token management and API key exchange
 //! - [`cloud_uplink`] - gRPC client for cloud sync (PRIMARY → Cloud)
 //!
+//! ### Multi-Store Modules (Milestone 4)
+//! - [`store_db`] - Separate store-level aggregation database
+//! - [`store_aggregator`] - Store-level data aggregation (sales, inventory, payments)
+//!
 //! ## Usage
 //!
 //! ```rust,ignore
@@ -130,13 +134,17 @@ pub mod proto;
 pub mod cloud_auth;
 pub mod cloud_uplink;
 
+// Multi-Store modules (Milestone 4)
+pub mod store_db;
+pub mod store_aggregator;
+
 // =============================================================================
 // Re-exports
 // =============================================================================
 
 // Core types
 pub use agent::{SyncAgent, SyncAgentHandle, SyncEventEmitter, SyncStatus};
-pub use config::{BroadcastMode, HubSettings, SyncConfig, SyncMode};
+pub use config::{AggregationSettings, BroadcastMode, CrossStoreVisibility, FailoverSettings, HubSettings, SyncConfig, SyncMode};
 pub use error::{SyncError, SyncResult};
 pub use protocol::SyncMessage;
 pub use transport::ConnectionState;
@@ -150,3 +158,8 @@ pub use hub::{HubConfig, HubHandle, HubServer};
 // Milestone 3 types
 pub use cloud_auth::{CloudAuth, CloudAuthConfig, TokenInfo};
 pub use cloud_uplink::{CloudUplink, CloudUplinkConfig};
+
+// Milestone 4 types
+pub use store_db::StoreDatabase;
+pub use store_aggregator::{StoreAggregator, StoreAggregatorHandle, AggregationEvent};
+

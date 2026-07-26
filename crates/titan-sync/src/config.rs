@@ -389,6 +389,163 @@ impl std::fmt::Display for BroadcastMode {
 }
 
 // =============================================================================
+// Aggregation Settings (Milestone 4)
+// =============================================================================
+
+/// Configuration for store-level aggregation.
+///
+/// ## Aggregation Architecture
+/// ```text
+/// ┌─────────────────────────────────────────────────────────────────────────┐
+/// │                     Store Aggregation Settings                          │
+/// │                                                                         │
+/// │  Aggregation runs ONLY on PRIMARY (Store Hub).                          │
+/// │                                                                         │
+/// │  INVENTORY (Real-time):                                                │
+/// │  ──────────────────────                                                │
+/// │  • Deltas aggregated immediately as they arrive                        │
+/// │  • Stored in store_aggregates.db as snapshots                          │
+/// │  • No batching - inventory accuracy is critical                        │
+/// │                                                                         │
+/// │  SALES (Batched):                                                      │
+/// │  ─────────────────                                                     │
+/// │  • Aggregated every N seconds (default: 60)                            │
+/// │  • Reduces cloud API calls                                             │
+/// │  • Summaries: total_count, total_gross, total_tax, total_net           │
+/// │                                                                         │
+/// │  PAYMENTS (Batched with Sales):                                        │
+/// │  ────────────────────────────────                                      │
+/// │  • Grouped by payment method                                           │
+/// │  • Summaries: count, total_amount per method                           │
+/// │                                                                         │
+/// └─────────────────────────────────────────────────────────────────────────┘
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AggregationSettings {
+    /// Enable store-level aggregation (only applies to PRIMARY).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Interval for batching sales aggregation (seconds).
+    /// Default: 60 seconds.
+    #[serde(default = "default_sales_batch_interval")]
+    pub sales_batch_interval_secs: u64,
+
+    /// Path to the store aggregates database.
+    /// If not set, uses `{data_dir}/store_aggregates.db`
+    #[serde(default)]
+    pub store_db_path: Option<String>,
+
+    /// Cross-store visibility settings.
+    #[serde(default)]
+    pub cross_store_visibility: CrossStoreVisibility,
+
+    /// Retention period for aggregated data (days).
+    /// Older data is purged. Default: 90 days.
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
+}
+
+fn default_sales_batch_interval() -> u64 {
+    60 // 1 minute
+}
+
+fn default_retention_days() -> u32 {
+    90
+}
+
+impl Default for AggregationSettings {
+    fn default() -> Self {
+        AggregationSettings {
+            enabled: true,
+            sales_batch_interval_secs: default_sales_batch_interval(),
+            store_db_path: None,
+            cross_store_visibility: CrossStoreVisibility::default(),
+            retention_days: default_retention_days(),
+        }
+    }
+}
+
+/// Cross-store data visibility settings.
+///
+/// Controls what data is visible across stores within a tenant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossStoreVisibility {
+    /// Whether products are shared across all stores in the tenant.
+    /// Default: true (catalog is tenant-wide)
+    #[serde(default = "default_true")]
+    pub products_shared: bool,
+
+    /// Whether inventory levels are visible across stores.
+    /// Default: false (store-specific)
+    #[serde(default)]
+    pub inventory_visible: bool,
+
+    /// Whether sales data is visible across stores.
+    /// Default: false (store-specific)
+    #[serde(default)]
+    pub sales_visible: bool,
+
+    /// Whether pricing is shared or store-specific.
+    /// Default: true (tenant-wide pricing with store overrides)
+    #[serde(default = "default_true")]
+    pub pricing_shared: bool,
+}
+
+impl Default for CrossStoreVisibility {
+    fn default() -> Self {
+        CrossStoreVisibility {
+            products_shared: true,
+            inventory_visible: false,
+            sales_visible: false,
+            pricing_shared: true,
+        }
+    }
+}
+
+// =============================================================================
+// Failover Settings (Milestone 4)
+// =============================================================================
+
+/// Configuration for failover behavior.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailoverSettings {
+    /// Grace period after election before accepting connections (seconds).
+    /// Allows old primary to gracefully step down.
+    /// Default: 5 seconds.
+    #[serde(default = "default_grace_period")]
+    pub grace_period_secs: u64,
+
+    /// Timeout for re-discovery when hub goes down (seconds).
+    /// Default: 30 seconds.
+    #[serde(default = "default_rediscovery_timeout")]
+    pub rediscovery_timeout_secs: u64,
+
+    /// Whether to auto-reconnect to new primary after failover.
+    /// Default: true.
+    #[serde(default = "default_true")]
+    pub auto_reconnect: bool,
+}
+
+fn default_grace_period() -> u64 {
+    5
+}
+
+fn default_rediscovery_timeout() -> u64 {
+    30
+}
+
+impl Default for FailoverSettings {
+    fn default() -> Self {
+        FailoverSettings {
+            grace_period_secs: default_grace_period(),
+            rediscovery_timeout_secs: default_rediscovery_timeout(),
+            auto_reconnect: true,
+        }
+    }
+}
+
+// =============================================================================
 // Discovery Settings (Milestone 2)
 // =============================================================================
 
@@ -500,6 +657,14 @@ impl Default for SyncSettings {
 /// mdns_enabled = true
 /// udp_enabled = true
 /// udp_port = 5555
+///
+/// [aggregation]
+/// enabled = true
+/// sales_batch_interval_secs = 60
+///
+/// [failover]
+/// grace_period_secs = 5
+/// auto_reconnect = true
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncConfig {
@@ -522,6 +687,14 @@ pub struct SyncConfig {
     /// Discovery settings.
     #[serde(default)]
     pub discovery: DiscoverySettings,
+
+    /// Aggregation settings (Milestone 4).
+    #[serde(default)]
+    pub aggregation: AggregationSettings,
+
+    /// Failover settings (Milestone 4).
+    #[serde(default)]
+    pub failover: FailoverSettings,
 }
 
 impl SyncConfig {

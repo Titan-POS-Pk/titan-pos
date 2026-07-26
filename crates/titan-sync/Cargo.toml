@@ -118,3 +118,6 @@ tonic-build = "0.12"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+
+# Throwaway on-disk SQLite files for store_db / store_aggregator tests
+tempfile = "3"
