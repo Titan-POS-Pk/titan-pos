@@ -59,7 +59,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, watch, RwLock};
-use tokio::time::{interval, sleep};
+use tokio::time::{interval, sleep_until, Instant as TokioInstant};
 use tracing::{debug, info, warn};
 
 use crate::config::{SyncConfig, SyncMode};
@@ -75,6 +75,9 @@ pub const DEFAULT_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Default heartbeat timeout (how long before PRIMARY is considered dead).
 pub const DEFAULT_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Default grace period after election (allows old primary to step down).
+pub const DEFAULT_GRACE_PERIOD: Duration = Duration::from_secs(5);
 
 /// Minimum election timeout for randomization.
 const MIN_ELECTION_TIMEOUT_MS: u64 = 150;
@@ -152,6 +155,8 @@ pub struct ElectionConfig {
     pub heartbeat_interval: Duration,
     /// Heartbeat timeout before triggering election.
     pub heartbeat_timeout: Duration,
+    /// Grace period after becoming PRIMARY (wait before accepting connections).
+    pub grace_period: Duration,
     /// Discovery configuration.
     pub discovery_config: DiscoveryConfig,
 }
@@ -161,6 +166,7 @@ impl Default for ElectionConfig {
         ElectionConfig {
             heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
             heartbeat_timeout: DEFAULT_HEARTBEAT_TIMEOUT,
+            grace_period: DEFAULT_GRACE_PERIOD,
             discovery_config: DiscoveryConfig::default(),
         }
     }
@@ -204,6 +210,8 @@ pub enum ElectionCommand {
     TriggerElection,
     /// Record a heartbeat from PRIMARY.
     RecordHeartbeat { device_id: String, term: u64, url: String },
+    /// Handle a DEMOTE message (old primary being told to step down).
+    HandleDemote { new_primary_id: String, term: u64, new_primary_url: String },
     /// Shutdown the election service.
     Shutdown,
 }
@@ -272,6 +280,23 @@ impl ElectionHandle {
             .map_err(|_| SyncError::ChannelError("Election command channel closed".into()))
     }
 
+    /// Handles a DEMOTE message (for split-brain prevention).
+    pub async fn handle_demote(
+        &self,
+        new_primary_id: String,
+        term: u64,
+        new_primary_url: String,
+    ) -> SyncResult<()> {
+        self.cmd_tx
+            .send(ElectionCommand::HandleDemote {
+                new_primary_id,
+                term,
+                new_primary_url,
+            })
+            .await
+            .map_err(|_| SyncError::ChannelError("Election command channel closed".into()))
+    }
+
     /// Shuts down the election service.
     pub async fn shutdown(&self) -> SyncResult<()> {
         self.cmd_tx
@@ -328,7 +353,7 @@ impl ElectionService {
             SyncMode::Primary => {
                 // Forced PRIMARY mode
                 info!("Forced PRIMARY mode - becoming hub immediately");
-                self.become_primary().await;
+                self.become_primary(&mut cmd_rx).await;
                 NodeRole::Primary
             }
             SyncMode::Secondary => {
@@ -353,57 +378,146 @@ impl ElectionService {
         }
 
         // If auto mode, do initial discovery
-        if self.sync_config.mode() == SyncMode::Auto {
-            self.do_discovery_and_election().await;
+        if self.sync_config.mode() == SyncMode::Auto
+            && self.do_discovery_and_election(&mut cmd_rx).await == Wait::Shutdown
+        {
+            info!("Election service shutting down");
+            return;
         }
 
         // Main loop: handle commands and heartbeat timeouts
+        //
+        // The command is pulled out of `select!` and handled *after* the macro
+        // returns, so the handler is free to take `&mut cmd_rx` again. Handlers
+        // that wait (election timeout, grace period) need that: they have to
+        // keep draining the channel while they wait, or the concurrency the
+        // election protocol depends on never happens. See `wait_servicing_commands`.
         let mut heartbeat_check = interval(Duration::from_secs(1));
 
         loop {
-            tokio::select! {
-                Some(cmd) = cmd_rx.recv() => {
-                    match cmd {
-                        ElectionCommand::Shutdown => {
-                            info!("Election service shutting down");
-                            break;
-                        }
-                        ElectionCommand::ForcePrimary => {
-                            if self.sync_config.mode().can_be_primary() {
-                                self.become_primary().await;
-                            } else {
-                                warn!("Cannot force PRIMARY - mode doesn't allow it");
-                            }
-                        }
-                        ElectionCommand::ForceSecondary => {
-                            self.become_secondary(None).await;
-                        }
-                        ElectionCommand::TriggerElection => {
-                            if self.sync_config.mode() == SyncMode::Auto {
-                                self.do_discovery_and_election().await;
-                            }
-                        }
-                        ElectionCommand::RecordHeartbeat { device_id, term, url } => {
-                            self.handle_heartbeat(device_id, term, url).await;
-                        }
+            let event = tokio::select! {
+                cmd = cmd_rx.recv() => match cmd {
+                    Some(cmd) => Event::Command(cmd),
+                    // All handles dropped: nothing can ever command us again.
+                    None => break,
+                },
+                _ = heartbeat_check.tick() => Event::HeartbeatCheck,
+            };
+
+            let outcome = match event {
+                Event::Command(ElectionCommand::Shutdown) => {
+                    info!("Election service shutting down");
+                    break;
+                }
+                Event::Command(ElectionCommand::ForcePrimary) => {
+                    if self.sync_config.mode().can_be_primary() {
+                        self.become_primary(&mut cmd_rx).await
+                    } else {
+                        warn!("Cannot force PRIMARY - mode doesn't allow it");
+                        Wait::Elapsed
                     }
                 }
-                _ = heartbeat_check.tick() => {
-                    self.check_heartbeat_timeout().await;
+                Event::Command(ElectionCommand::ForceSecondary) => {
+                    self.become_secondary(None).await;
+                    Wait::Elapsed
                 }
+                Event::Command(ElectionCommand::TriggerElection) => {
+                    if self.sync_config.mode() == SyncMode::Auto {
+                        self.do_discovery_and_election(&mut cmd_rx).await
+                    } else {
+                        Wait::Elapsed
+                    }
+                }
+                Event::Command(ElectionCommand::RecordHeartbeat {
+                    device_id,
+                    term,
+                    url,
+                }) => {
+                    self.handle_heartbeat(device_id, term, url).await;
+                    Wait::Elapsed
+                }
+                Event::Command(ElectionCommand::HandleDemote {
+                    new_primary_id,
+                    term,
+                    new_primary_url,
+                }) => {
+                    self.handle_demote(new_primary_id, term, new_primary_url).await;
+                    Wait::Elapsed
+                }
+                Event::HeartbeatCheck => self.check_heartbeat_timeout(&mut cmd_rx).await,
+            };
+
+            if outcome == Wait::Shutdown {
+                info!("Election service shutting down");
+                break;
+            }
+        }
+    }
+
+    /// Waits for `duration` while continuing to service election commands.
+    ///
+    /// ## Why this exists
+    /// Two waits in this protocol are only meaningful if the node can still
+    /// *observe* the rest of the store while waiting:
+    ///
+    /// - the randomized election timeout, which exists so that a competing
+    ///   candidate's claim can land before we declare ourselves PRIMARY;
+    /// - the post-election grace period, which exists so that an old PRIMARY
+    ///   can be told to step down.
+    ///
+    /// A bare `sleep().await` inside the `select!` arm starves `cmd_rx` for the
+    /// whole wait. Heartbeats and DEMOTEs queue up behind it, so the state can
+    /// never change underneath us — which makes the post-wait
+    /// `role == Candidate` check unconditionally true and turns the randomized
+    /// timeout into dead code. Draining the channel here is what makes both
+    /// windows real.
+    ///
+    /// Role-changing commands are deliberately *not* acted on during a wait:
+    /// we are already mid-transition, and re-entering would nest elections.
+    /// They are dropped with a log line rather than queued, because by the time
+    /// the wait ends the state they were issued against is stale anyway.
+    async fn wait_servicing_commands(
+        &self,
+        cmd_rx: &mut mpsc::Receiver<ElectionCommand>,
+        duration: Duration,
+    ) -> Wait {
+        let deadline = TokioInstant::now() + duration;
+
+        loop {
+            tokio::select! {
+                _ = sleep_until(deadline) => return Wait::Elapsed,
+                cmd = cmd_rx.recv() => match cmd {
+                    None | Some(ElectionCommand::Shutdown) => return Wait::Shutdown,
+
+                    // Observational commands: these are exactly what the wait
+                    // is listening for.
+                    Some(ElectionCommand::RecordHeartbeat { device_id, term, url }) => {
+                        self.handle_heartbeat(device_id, term, url).await;
+                    }
+                    Some(ElectionCommand::HandleDemote { new_primary_id, term, new_primary_url }) => {
+                        self.handle_demote(new_primary_id, term, new_primary_url).await;
+                    }
+
+                    Some(other) => {
+                        debug!(
+                            command = ?other,
+                            "Dropping role-change command received mid-transition"
+                        );
+                    }
+                },
             }
         }
     }
 
     /// Performs discovery and potentially starts an election.
-    async fn do_discovery_and_election(&self) {
+    async fn do_discovery_and_election(&self, cmd_rx: &mut mpsc::Receiver<ElectionCommand>) -> Wait {
         debug!("Running discovery scan");
 
         match discover_hubs(&self.config.discovery_config, &self.sync_config).await {
             Ok(hubs) => {
                 if hubs.is_empty() {
                     info!("No hubs found - starting election");
-                    self.run_election().await;
+                    self.run_election(cmd_rx).await
                 } else {
                     // Find the best hub
                     let best_hub = hubs
@@ -415,26 +529,30 @@ impl ElectionService {
                             }
                         });
 
-                    if let Some(hub) = best_hub {
-                        info!(
-                            hub_id = %hub.device_id,
-                            hub_url = %hub.ws_url(),
-                            "Found existing hub"
-                        );
+                    match best_hub {
+                        Some(hub) => {
+                            info!(
+                                hub_id = %hub.device_id,
+                                hub_url = %hub.ws_url(),
+                                "Found existing hub"
+                            );
 
-                        // Check if we should challenge (higher priority)
-                        if self.should_challenge(hub) {
-                            info!("We have higher priority - challenging current hub");
-                            self.run_election().await;
-                        } else {
-                            self.become_secondary(Some(hub.clone())).await;
+                            // Check if we should challenge (higher priority)
+                            if self.should_challenge(hub) {
+                                info!("We have higher priority - challenging current hub");
+                                self.run_election(cmd_rx).await
+                            } else {
+                                self.become_secondary(Some(hub.clone())).await;
+                                Wait::Elapsed
+                            }
                         }
+                        None => Wait::Elapsed,
                     }
                 }
             }
             Err(e) => {
                 warn!(?e, "Discovery failed - assuming we're alone, becoming PRIMARY");
-                self.run_election().await;
+                self.run_election(cmd_rx).await
             }
         }
     }
@@ -454,10 +572,10 @@ impl ElectionService {
     }
 
     /// Runs an election.
-    async fn run_election(&self) {
+    async fn run_election(&self, cmd_rx: &mut mpsc::Receiver<ElectionCommand>) -> Wait {
         if !self.sync_config.mode().can_be_primary() {
             debug!("Cannot run election - mode doesn't allow PRIMARY");
-            return;
+            return Wait::Elapsed;
         }
 
         // Become candidate and get new term
@@ -472,10 +590,21 @@ impl ElectionService {
 
         info!(term = new_term, "Starting election as candidate");
 
-        // Random election timeout to prevent split-brain
+        // Random election timeout to prevent split-brain.
+        //
+        // The jitter is only useful if a competing candidate's heartbeat can
+        // reach us while we wait, so this drains the command channel instead of
+        // sleeping on it. `handle_heartbeat` demotes a Candidate to Secondary
+        // when it sees a term >= ours, which is what the check below reads.
         let timeout_ms = MIN_ELECTION_TIMEOUT_MS
             + (rand_u64() % (MAX_ELECTION_TIMEOUT_MS - MIN_ELECTION_TIMEOUT_MS));
-        sleep(Duration::from_millis(timeout_ms)).await;
+        if self
+            .wait_servicing_commands(cmd_rx, Duration::from_millis(timeout_ms))
+            .await
+            == Wait::Shutdown
+        {
+            return Wait::Shutdown;
+        }
 
         // Check if we're still a candidate (someone else might have won)
         let should_become_primary = {
@@ -485,12 +614,15 @@ impl ElectionService {
 
         if should_become_primary {
             // No one else claimed PRIMARY - we win!
-            self.become_primary().await;
+            self.become_primary(cmd_rx).await
+        } else {
+            info!(term = new_term, "Lost election - another node claimed PRIMARY");
+            Wait::Elapsed
         }
     }
 
     /// Transitions to PRIMARY role.
-    async fn become_primary(&self) {
+    async fn become_primary(&self, cmd_rx: &mut mpsc::Receiver<ElectionCommand>) -> Wait {
         let mut state = self.state.write().await;
         state.role = NodeRole::Primary;
         state.primary_id = Some(self.sync_config.device_id().to_string());
@@ -500,8 +632,84 @@ impl ElectionService {
         info!(
             term = state.term,
             device_id = %self.sync_config.device_id(),
-            "Became PRIMARY (Store Hub)"
+            grace_period_secs = self.config.grace_period.as_secs(),
+            "Became PRIMARY (Store Hub) - entering grace period"
         );
+
+        let _ = self.state_tx.send(state.clone());
+        drop(state);
+
+        // Grace period: Wait before accepting connections.
+        // This allows the old primary (if any) to gracefully step down
+        // and prevents split-brain during network partitions.
+        //
+        // Serviced, not slept: the whole point is to be reachable by a DEMOTE
+        // or a higher-term heartbeat during the window. If one arrives,
+        // `handle_demote` / `handle_heartbeat` moves us back to SECONDARY, so
+        // re-read the role afterwards instead of assuming we are still PRIMARY.
+        if !self.config.grace_period.is_zero() {
+            debug!(
+                grace_period_secs = self.config.grace_period.as_secs(),
+                "Waiting for grace period before accepting connections"
+            );
+            if self
+                .wait_servicing_commands(cmd_rx, self.config.grace_period)
+                .await
+                == Wait::Shutdown
+            {
+                return Wait::Shutdown;
+            }
+
+            let role = self.state.read().await.role;
+            if role == NodeRole::Primary {
+                info!("Grace period complete - now accepting connections");
+            } else {
+                warn!(%role, "Stepped down during grace period - not accepting connections");
+            }
+        }
+
+        Wait::Elapsed
+    }
+
+    /// Handles a DEMOTE message from the new primary.
+    ///
+    /// This is called when we were PRIMARY but lost an election (e.g., due to
+    /// network partition) and the new PRIMARY is telling us to step down.
+    async fn handle_demote(&self, new_primary_id: String, term: u64, new_primary_url: String) {
+        let mut state = self.state.write().await;
+
+        // Only accept demote if the term is higher than ours
+        if term <= state.term {
+            warn!(
+                received_term = term,
+                our_term = state.term,
+                new_primary_id = %new_primary_id,
+                "Rejecting DEMOTE - our term is higher or equal"
+            );
+            return;
+        }
+
+        // Only demote if we're currently PRIMARY
+        if state.role != NodeRole::Primary {
+            debug!(
+                role = %state.role,
+                "Received DEMOTE but we're not PRIMARY - ignoring"
+            );
+            return;
+        }
+
+        warn!(
+            new_term = term,
+            old_term = state.term,
+            new_primary_id = %new_primary_id,
+            "Accepting DEMOTE - stepping down from PRIMARY"
+        );
+
+        state.role = NodeRole::Secondary;
+        state.term = term;
+        state.primary_id = Some(new_primary_id);
+        state.primary_url = Some(new_primary_url);
+        state.last_heartbeat = Some(Instant::now());
 
         let _ = self.state_tx.send(state.clone());
     }
@@ -577,12 +785,12 @@ impl ElectionService {
     }
 
     /// Checks if the PRIMARY heartbeat has timed out.
-    async fn check_heartbeat_timeout(&self) {
+    async fn check_heartbeat_timeout(&self, cmd_rx: &mut mpsc::Receiver<ElectionCommand>) -> Wait {
         // Only check if we're SECONDARY
         let should_trigger_election = {
             let state = self.state.read().await;
             if state.role != NodeRole::Secondary {
-                return;
+                return Wait::Elapsed;
             }
 
             if let Some(last_heartbeat) = state.last_heartbeat {
@@ -595,9 +803,28 @@ impl ElectionService {
 
         if should_trigger_election && self.sync_config.mode() == SyncMode::Auto {
             warn!("PRIMARY heartbeat timeout - triggering election");
-            self.do_discovery_and_election().await;
+            self.do_discovery_and_election(cmd_rx).await
+        } else {
+            Wait::Elapsed
         }
     }
+}
+
+/// What the main loop is reacting to on a given iteration.
+///
+/// Pulled out of `select!` so the handler can re-borrow `cmd_rx`.
+enum Event {
+    Command(ElectionCommand),
+    HeartbeatCheck,
+}
+
+/// Result of an operation that may have waited while servicing commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Wait {
+    /// The operation finished normally.
+    Elapsed,
+    /// A shutdown was requested mid-wait; the service must stop.
+    Shutdown,
 }
 
 /// Simple random number generator (not cryptographically secure, just for jitter).
@@ -637,5 +864,143 @@ mod tests {
         let b = rand_u64();
         // They might be the same in rare cases, but generally should differ
         assert_ne!(a, b);
+    }
+
+    // -------------------------------------------------------------------------
+    // Election window
+    // -------------------------------------------------------------------------
+
+    /// Builds a service in AUTO mode with no grace period, so `run_election`
+    /// is the only thing under test.
+    fn test_service() -> ElectionService {
+        let sync_config = Arc::new(SyncConfig::default());
+        assert_eq!(sync_config.mode(), SyncMode::Auto);
+
+        ElectionService::new(
+            sync_config,
+            ElectionConfig {
+                grace_period: Duration::ZERO,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// With no competing claim, a candidate wins and becomes PRIMARY.
+    /// This is the control for the test below.
+    #[tokio::test]
+    async fn test_uncontested_election_promotes_to_primary() {
+        let service = test_service();
+        let (_cmd_tx, mut cmd_rx) = mpsc::channel(32);
+
+        assert_eq!(service.run_election(&mut cmd_rx).await, Wait::Elapsed);
+
+        let state = service.state.read().await;
+        assert_eq!(state.role, NodeRole::Primary);
+        assert_eq!(state.term, 1);
+    }
+
+    /// Regression test for a starved election window.
+    ///
+    /// `run_election` campaigns for a randomized 150-300ms and then checks
+    /// whether it is still a Candidate. That check is the whole split-brain
+    /// guard, and it can only ever be false if a competing claim is *processed*
+    /// during the wait. When the wait was a bare `sleep().await` inside the
+    /// `select!` arm, `cmd_rx` was starved for its full duration: the heartbeat
+    /// below stayed queued, the node promoted itself, and two PRIMARYs served
+    /// the same store.
+    #[tokio::test]
+    async fn test_competing_claim_during_election_window_prevents_promotion() {
+        let service = test_service();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(32);
+
+        // Held for the whole test: the live service keeps a sender inside
+        // `ElectionHandle`, and a fully closed channel legitimately means
+        // shutdown. Without this the test would exercise that path instead.
+        let _handle_sender = cmd_tx.clone();
+
+        // Another node claims PRIMARY with a higher term. 20ms is well inside
+        // the 150ms floor of the election window.
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            cmd_tx
+                .send(ElectionCommand::RecordHeartbeat {
+                    device_id: "other-node".to_string(),
+                    term: 99,
+                    url: "ws://other-node:8765/sync".to_string(),
+                })
+                .await
+                .expect("election service should still be listening mid-window");
+        });
+
+        assert_eq!(service.run_election(&mut cmd_rx).await, Wait::Elapsed);
+
+        let state = service.state.read().await;
+        assert_eq!(
+            state.role,
+            NodeRole::Secondary,
+            "candidate must yield to a higher-term claim seen during its window"
+        );
+        assert_eq!(state.term, 99);
+        assert_eq!(state.primary_id.as_deref(), Some("other-node"));
+    }
+
+    /// A shutdown issued mid-campaign must stop the service rather than being
+    /// swallowed and letting the node promote itself afterwards.
+    #[tokio::test]
+    async fn test_shutdown_during_election_window_aborts_promotion() {
+        let service = test_service();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(32);
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let _ = cmd_tx.send(ElectionCommand::Shutdown).await;
+        });
+
+        assert_eq!(service.run_election(&mut cmd_rx).await, Wait::Shutdown);
+
+        let state = service.state.read().await;
+        assert_ne!(state.role, NodeRole::Primary);
+    }
+
+    /// The grace period exists so a DEMOTE can land before the new PRIMARY
+    /// starts serving. That requires the wait to keep draining commands.
+    #[tokio::test]
+    async fn test_demote_during_grace_period_steps_new_primary_down() {
+        let sync_config = Arc::new(SyncConfig::default());
+        let service = ElectionService::new(
+            sync_config,
+            ElectionConfig {
+                grace_period: Duration::from_millis(200),
+                ..Default::default()
+            },
+        );
+
+        // Start at term 5 so the DEMOTE's term 6 is strictly higher.
+        {
+            let mut state = service.state.write().await;
+            state.term = 5;
+        }
+
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(32);
+        let _handle_sender = cmd_tx.clone();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            cmd_tx
+                .send(ElectionCommand::HandleDemote {
+                    new_primary_id: "real-primary".to_string(),
+                    term: 6,
+                    new_primary_url: "ws://real-primary:8765/sync".to_string(),
+                })
+                .await
+                .expect("new primary should be reachable during its grace period");
+        });
+
+        assert_eq!(service.become_primary(&mut cmd_rx).await, Wait::Elapsed);
+
+        let state = service.state.read().await;
+        assert_eq!(state.role, NodeRole::Secondary);
+        assert_eq!(state.term, 6);
+        assert_eq!(state.primary_id.as_deref(), Some("real-primary"));
     }
 }
