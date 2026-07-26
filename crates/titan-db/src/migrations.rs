@@ -53,7 +53,7 @@ use crate::error::DbResult;
 /// directory into the binary at compile time. No runtime file access needed.
 ///
 /// ## Directory Structure
-/// ```
+/// ```text
 /// migrations/sqlite/
 /// ├── 001_initial_schema.sql  # Core tables
 /// ├── 002_add_fts.sql         # Full-text search
