@@ -58,6 +58,36 @@ pub struct ProductRepository {
     pool: SqlitePool,
 }
 
+/// Turns raw cashier input into a safe FTS5 prefix query.
+///
+/// ## Why this is not `format!("{}*", query)`
+/// The MATCH right-hand side is a query *language*, not a literal. `-`, `"`,
+/// `:`, `*`, `(`, `)`, `^` and the bare words AND/OR/NOT are all operators in
+/// it. Every SKU in this system has the shape `CATEGORY-CODE-NNN`, so the
+/// obvious formulation broke the single most common search a cashier performs:
+///
+/// ```text
+///   typed:  BEV-COC
+///   sent:   BEV-COC*        FTS5 reads `-COC` as a column filter
+///   result: Error: no such column: COC
+/// ```
+///
+/// Not "no results" - a hard error out of SQLite on every SKU lookup.
+///
+/// Wrapping the input in double quotes makes FTS5 treat it as a phrase, where
+/// operators are inert, and a `*` placed *outside* the closing quote still
+/// applies prefix matching to the final token. Embedded quotes are escaped by
+/// doubling, which is FTS5's own escape.
+///
+/// ```text
+///   typed:  BEV-COC   ->  "BEV-COC"*   ->  10 matches
+///   typed:  cola      ->  "cola"*      ->  6135 matches
+///   typed:  a"b       ->  "a""b"*      ->  no syntax error
+/// ```
+fn fts5_prefix_query(query: &str) -> String {
+    format!("\"{}\"*", query.replace('"', "\"\""))
+}
+
 impl ProductRepository {
     /// Creates a new ProductRepository.
     pub fn new(pool: SqlitePool) -> Self {
@@ -97,9 +127,7 @@ impl ProductRepository {
             return self.list_active(limit).await;
         }
 
-        // FTS5 search with wildcard suffix for prefix matching
-        // "coke" becomes "coke*" to match "coke", "coke-330", etc.
-        let fts_query = format!("{}*", query);
+        let fts_query = fts5_prefix_query(query);
 
         // Query using FTS5 MATCH
         // We join back to products table to get all columns
@@ -511,4 +539,45 @@ impl ProductRepository {
 /// ```
 pub fn generate_product_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+// =============================================================================
+// Unit Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test: every SKU in this system contains a hyphen, and a bare
+    /// hyphen is a column-filter operator in FTS5. Building the MATCH string
+    /// with `format!("{}*", query)` made SQLite return
+    /// `no such column: COC` for the most ordinary search a cashier runs.
+    #[test]
+    fn test_sku_input_is_not_parsed_as_fts5_operators() {
+        assert_eq!(fts5_prefix_query("BEV-COC"), "\"BEV-COC\"*");
+        assert_eq!(fts5_prefix_query("COKE-330"), "\"COKE-330\"*");
+    }
+
+    #[test]
+    fn test_plain_words_still_prefix_match() {
+        assert_eq!(fts5_prefix_query("cola"), "\"cola\"*");
+        assert_eq!(fts5_prefix_query("coca cola"), "\"coca cola\"*");
+    }
+
+    /// A quote in the input must not terminate the phrase and expose the
+    /// remainder to the query parser. FTS5 escapes a quote by doubling it.
+    #[test]
+    fn test_quotes_in_input_are_escaped() {
+        assert_eq!(fts5_prefix_query("a\"b"), "\"a\"\"b\"*");
+        assert_eq!(fts5_prefix_query("\" OR 1"), "\"\"\" OR 1\"*");
+    }
+
+    /// Operator-looking input is inert inside a phrase.
+    #[test]
+    fn test_operators_in_input_are_inert() {
+        assert_eq!(fts5_prefix_query("a OR b"), "\"a OR b\"*");
+        assert_eq!(fts5_prefix_query("x*"), "\"x*\"*");
+        assert_eq!(fts5_prefix_query("(y)"), "\"(y)\"*");
+    }
 }
