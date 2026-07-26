@@ -17,8 +17,9 @@ division truncates toward zero rather than flooring, so the bias ran in
 opposite directions by sign. A $10.00 sale at 8.25% is exactly 82.5¢: the
 sale charged 83¢, the matching refund returned 82¢. Every tie leaked a cent
 into the tax account. Fixed with Euclidean division so the tie test is
-sign-symmetric, and sign symmetry is now a property test over 2,000 amounts
-rather than an example.
+sign-symmetric, and `tax(-x) == -tax(x)` is now asserted by an exhaustive
+sweep over every amount from 1¢ to $20.00 at 8.25% — a deterministic loop,
+not a randomised property test.
 → [`crates/titan-core/src/money.rs`](crates/titan-core/src/money.rs)
 
 **The split-brain guard could never fire.** The election waits a randomized
@@ -41,24 +42,32 @@ column-filter operator, so the commonest search a cashier performs returned
 
 ### Search latency, measured
 
-50,000 products, WAL mode, SQLite 3.x on an M-series Mac. 500 iterations per
-query in a single connection, process startup subtracted:
+```bash
+cargo run --release -p titan-db --bin bench_search
+```
 
-| Query | Rows matched | Median |
-|-------|--------------|--------|
-| SKU prefix `BEV` | 200 | 0.34 ms |
-| Full product name | 16 | 0.57 ms |
-| Barcode prefix | 1,000 | 1.02 ms |
-| Term matching 12% of catalogue | 6,135 | 27.7 ms |
+50,000 products, WAL mode, SQLite 3.51 on an Apple M1 Pro. 500 iterations per
+query against one already-open pool, after a warmup pass, so process startup
+and connection setup are outside the measurement:
+
+| Query | Rows matched | Median | p95 |
+|-------|--------------|--------|-----|
+| Full SKU, typed (`BEV-COC-000`) | 1 | 0.11 ms | 0.26 ms |
+| Full barcode, scanned | 1 | 0.08 ms | 0.18 ms |
+| Full product name | 500 | 1.10 ms | 2.78 ms |
+| Bare category prefix (`BEV`) | 10,000 | 6.99 ms | 11.15 ms |
 
 Cost tracks the number of matches, not the catalogue size, because
-`ORDER BY rank` scores every hit before the `LIMIT` applies. Sub-10ms is
-comfortable for selective queries — SKU, barcode, product name — which is
-what a lane actually types. A deliberately unselective term is not, and that
-row is in the table for the same reason.
+`ORDER BY rank` scores every hit before the `LIMIT` applies. The two things a
+lane actually does — type a SKU, scan a barcode — are the two fastest rows
+and stay under a millisecond. The last row is a query nobody types
+deliberately, and it is in the table because it is where the sub-10ms claim
+stops holding: at p95 it does not.
 
-Note the seed generator caps at ~1,000 products regardless of `--count`; the
-50k figures above come from synthesized rows, not from `cargo run --bin seed`.
+The harness seeds its own throwaway database, so these numbers are
+reproducible from a clean checkout rather than asserted. Medians were stable
+to within 0.05 ms across three runs; the table is one machine's figures, not
+a guarantee.
 
 ### Design commitments
 
@@ -96,12 +105,15 @@ titan-pos/
 │   ├── titan-db/           # Database abstraction
 │   └── titan-sync/         # Sync engine & CRDT
 ├── apps/
-│   └── desktop/            # Tauri application
-│       ├── src-tauri/      # Rust backend
-│       └── src/            # SolidJS frontend
+│   ├── desktop/            # Tauri application
+│   │   ├── src-tauri/      # Rust backend
+│   │   └── src/            # SolidJS frontend
+│   └── cloud-api/          # Cloud gRPC server
+├── .sqlx/                  # sqlx offline query cache (tracked)
 ├── docs/                   # Architecture docs
 ├── migrations/             # SQL migrations
-└── proto/                  # Protobuf definitions
+├── proto/                  # Protobuf definitions
+└── scripts/                # Multi-instance dev helpers
 ```
 
 ---
@@ -111,31 +123,47 @@ titan-pos/
 ### Prerequisites
 
 - Rust 1.75+ (with `cargo`)
-- Node.js 20+ (with `pnpm`)
+- Node.js 20+ and `pnpm` 9+
 - Tauri CLI (`cargo install tauri-cli`)
 
-### Development
+No database setup is required. `sqlx` verifies SQL at compile time against
+the committed `.sqlx/` cache, so a fresh clone builds offline.
+
+### Build and run
+
+The npm workspace is `apps/desktop`, not the repository root — there is no
+root `package.json`. The frontend has to be built at least once before the
+Rust side will compile, because `tauri_build` checks that `frontendDist`
+exists.
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/titan-pos.git
-cd titan-pos
+git clone https://github.com/Titan-POS-Pk/titan-pos.git
+cd titan-pos/apps/desktop
 
-# Install dependencies
 pnpm install
-
-# Run in development mode
-pnpm dev
+pnpm build            # required before any cargo build
+pnpm tauri dev        # run the app
 ```
 
-### Build
+### Rust-only checks
 
 ```bash
-# Build for production
-pnpm build
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
 
-# Build installers (macOS, Windows)
-pnpm tauri build
+### Installers
+
+```bash
+cd apps/desktop
+pnpm tauri build      # macOS, Windows, Linux
+```
+
+### Seed a catalogue
+
+```bash
+cargo run -p titan-db --bin seed -- --count 50000 --db ./data/titan.db
 ```
 
 ---
@@ -144,11 +172,12 @@ pnpm tauri build
 
 | Document | Description |
 |----------|-------------|
-| [Architecture Decisions](docs/architecture/ARCHITECTURE_DECISIONS.md) | ADRs and design rationale |
-| [Architecture Diagrams](docs/architecture/ARCHITECTURE_DIAGRAMS.md) | System diagrams |
-| [Crate Guide](docs/architecture/CRATE_GUIDE.md) | Crate responsibilities |
 | [Sync Architecture](docs/architecture/SYNC_ARCHITECTURE.md) | Store hub, election, CRDT sync |
+| [Architecture Decisions](docs/architecture/ARCHITECTURE_DECISIONS.md) | ADRs and design rationale |
+| [Crate Guide](docs/architecture/CRATE_GUIDE.md) | Crate responsibilities |
+| [Architecture Diagrams](docs/architecture/ARCHITECTURE_DIAGRAMS.md) | System diagrams |
 | [Running the sync modes](docs/RUNNING_SYNC_MODES.md) | Bring up a multi-device store |
+| [Contributing](docs/CONTRIBUTING.md) | Development guidelines |
 
 ---
 
@@ -158,19 +187,31 @@ pnpm tauri build
 |---------|-------|--------|
 | v0.1 | Logical core: money, cart, FTS search, local persistence | Shipped |
 | v0.2 | Store sync: hub election, CRDT inventory, store aggregation | Shipped |
-| v0.5 | Hardware I/O | Q2 2026 |
-| v1.0 | Integrated Payments | Q3 2026 |
-| v1.5 | Multi-Store | Q4 2026 |
-| v2.0 | Enterprise Analytics | 2027 |
+| v0.5 | Hardware I/O: receipt printer, cash drawer, scanner | Next |
+| v1.0 | Integrated payments | Planned |
+| v1.5 | Multi-store | Planned |
+| v2.0 | Enterprise analytics | Planned |
 
----
+Unshipped milestones are deliberately undated. There is no delivery team
+behind this, and dates on it would be decoration.
 
-## Contributing
+### Known gaps
 
-See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for development guidelines.
+- No authentication. The device is trusted and `user_id` comes from config,
+  so anyone at the till can ring a sale. The schema is shaped for PIN-based
+  cashier switching, but it is not implemented.
+- Receipt numbers use timestamp milliseconds rather than a per-device
+  counter, so they are collision-resistant but not ordered.
+- Cloud notification topic filtering is unimplemented: every subscriber to a
+  store receives every notification for it.
+- The sync agent sends its `Hello` handshake once, from a task that breaks on
+  first connect, so a SECONDARY that drops and reconnects is never
+  re-registered by the hub.
+- 24 integration tests are `#[ignore]`d because they need a live cloud-api or
+  a provisioned database.
 
 ---
 
 ## License
 
-Proprietary. All rights reserved.
+MIT. See [LICENSE](LICENSE).
