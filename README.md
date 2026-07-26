@@ -65,9 +65,11 @@ deliberately, and it is in the table because it is where the sub-10ms claim
 stops holding: at p95 it does not.
 
 The harness seeds its own throwaway database, so these numbers are
-reproducible from a clean checkout rather than asserted. Medians were stable
-to within 0.05 ms across three runs; the table is one machine's figures, not
-a guarantee.
+reproducible from a clean checkout rather than asserted. They are one run on
+one machine. Repeat runs moved the medians by up to ~15% on the slowest row
+(5.96–7.12 ms) and by hundredths of a millisecond on the fast ones; the
+match counts and the rank order were identical every time. Run it yourself
+rather than trusting the table.
 
 ### Design commitments
 
