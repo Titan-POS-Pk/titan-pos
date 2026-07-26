@@ -1,0 +1,39 @@
+# Version control
+.git
+.gitignore
+
+# Rust build artifacts
+/target
+**/target
+
+# Node/Yarn/Pnpm artifacts
+**/node_modules
+.pnpm-store
+
+# Local data and logs
+/data
+**/logs
+
+# IDE/editor files
+.vscode
+.idea
+.DS_Store
+
+# Test and debug artifacts
+**/*.log
+**/*.tmp
+
+# Docs and local scripts (not needed in image)
+/docs
+/scripts
+
+# OS files
+Thumbs.db
+
+# ============================================
+# EXCLUDE DESKTOP APP FROM CLOUD-API BUILD
+# ============================================
+# The Tauri desktop app has GTK dependencies that aren't needed
+# for the cloud-api server. Excluding it prevents cargo-chef
+# from trying to build GTK dependencies in the Docker image.
+apps/desktop

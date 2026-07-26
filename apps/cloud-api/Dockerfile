@@ -17,9 +17,10 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Chef - Base image with cargo-chef
 # -----------------------------------------------------------------------------
-FROM rust:1.87-slim-bookworm AS chef
+FROM rust:1.88-slim-bookworm AS chef
 
 # Install dependencies needed for compilation
+# Note: Desktop app is excluded via .dockerignore, so no GTK deps needed
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \

@@ -26,7 +26,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations/postgres:/docker-entrypoint-initdb.d:ro
+      # NOTE: Do NOT mount migrations here - cloud-api handles migrations via sqlx
+      # The init scripts would conflict with sqlx's migration tracking
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U titan -d titan_pos"]
       interval: 10s
