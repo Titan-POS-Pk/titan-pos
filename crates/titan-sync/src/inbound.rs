@@ -56,6 +56,7 @@ use tracing::{debug, error, info, warn};
 
 use titan_db::Database;
 
+use crate::agent::SyncEventEmitter;
 use crate::config::SyncConfig;
 use crate::error::{SyncError, SyncResult};
 use crate::protocol::{EntityUpdate, SyncMessage, UpdateAck};
@@ -75,6 +76,9 @@ pub struct InboundHandler {
 
     /// Transport for sending acknowledgements.
     transport: TransportHandle,
+
+    /// Event emitter for notifying frontend of updates.
+    emitter: Arc<dyn SyncEventEmitter>,
 
     /// Receiver for incoming update messages.
     update_rx: mpsc::Receiver<SyncMessage>,
@@ -101,6 +105,15 @@ impl InboundHandlerHandle {
             .await
             .map_err(|_| SyncError::ChannelError("Update channel closed".into()))
     }
+    
+    /// Routes an inventory update message to the handler.
+    /// This applies stock deltas from PRIMARY to SECONDARY's local database.
+    pub async fn handle_inventory_update(&self, update: crate::protocol::InventoryUpdate) -> SyncResult<()> {
+        self.update_tx
+            .send(SyncMessage::InventoryUpdate(update))
+            .await
+            .map_err(|_| SyncError::ChannelError("Update channel closed".into()))
+    }
 
     /// Triggers graceful shutdown.
     pub async fn shutdown(&self) -> SyncResult<()> {
@@ -117,6 +130,7 @@ impl InboundHandler {
         db: Arc<Database>,
         config: Arc<SyncConfig>,
         transport: TransportHandle,
+        emitter: Arc<dyn SyncEventEmitter>,
     ) -> (Self, InboundHandlerHandle) {
         let (update_tx, update_rx) = mpsc::channel(100);
         let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
@@ -125,6 +139,7 @@ impl InboundHandler {
             db,
             config,
             transport,
+            emitter,
             update_rx,
             shutdown_rx,
         };
@@ -144,9 +159,19 @@ impl InboundHandler {
         loop {
             tokio::select! {
                 Some(msg) = self.update_rx.recv() => {
-                    if let SyncMessage::EntityUpdate(update) = msg {
-                        if let Err(e) = self.process_update(update).await {
-                            error!(?e, "Failed to process entity update");
+                    match msg {
+                        SyncMessage::EntityUpdate(update) => {
+                            if let Err(e) = self.process_update(update).await {
+                                error!(?e, "Failed to process entity update");
+                            }
+                        }
+                        SyncMessage::InventoryUpdate(update) => {
+                            if let Err(e) = self.process_inventory_update(update).await {
+                                error!(?e, "Failed to process inventory update");
+                            }
+                        }
+                        _ => {
+                            debug!(?msg, "Ignoring unexpected message type in inbound handler");
                         }
                     }
                 }
@@ -159,6 +184,64 @@ impl InboundHandler {
         }
 
         info!("Inbound handler stopped");
+    }
+    
+    /// Processes an inventory update from PRIMARY.
+    /// 
+    /// This applies the stock delta to the SECONDARY's local database
+    /// and notifies the frontend to refresh the product display.
+    /// Unlike EntityUpdate, this is a CRDT-style delta that's always applied.
+    /// 
+    /// ## Self-Echo Prevention
+    /// When SECONDARY makes a sale, it:
+    /// 1. Decrements stock locally
+    /// 2. Sends InventoryDelta to PRIMARY
+    /// 3. PRIMARY broadcasts InventoryUpdate to ALL clients (including sender)
+    /// 
+    /// To prevent double-decrement, we skip updates where source_device_id matches
+    /// our own device ID - we already applied that delta locally.
+    async fn process_inventory_update(&self, update: crate::protocol::InventoryUpdate) -> SyncResult<()> {
+        let my_device_id = self.config.device_id();
+        
+        // Skip self-echoed updates (we already applied this delta locally)
+        if update.source_device_id == my_device_id {
+            debug!(
+                product_id = %update.product_id,
+                delta = update.delta_quantity,
+                source = %update.source_device_id,
+                my_device_id = %my_device_id,
+                "Skipping self-echoed inventory update (already applied locally)"
+            );
+            return Ok(());
+        }
+        
+        info!(
+            product_id = %update.product_id,
+            delta = update.delta_quantity,
+            source = %update.source_device_id,
+            "Applying inventory update from PRIMARY"
+        );
+        
+        // Apply the stock delta to local database
+        self.db
+            .products()
+            .update_stock(&update.product_id, update.delta_quantity)
+            .await?;
+        
+        info!(
+            product_id = %update.product_id,
+            delta = update.delta_quantity,
+            "Inventory update applied successfully"
+        );
+        
+        // Notify the frontend to refresh the product display
+        // This ensures the UI shows the updated stock level
+        self.emitter.emit_inventory_update(
+            vec![update.product_id.clone()],
+            "sync_from_primary"
+        );
+        
+        Ok(())
     }
 
     /// Processes an entity update message.

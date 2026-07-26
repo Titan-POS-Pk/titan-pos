@@ -105,6 +105,10 @@ pub trait SyncEventEmitter: Send + Sync {
 
     /// Emits a sync error event.
     fn emit_error(&self, message: &str, retryable: bool);
+    
+    /// Emits an inventory update event.
+    /// Called when SECONDARY receives inventory updates from PRIMARY.
+    fn emit_inventory_update(&self, product_ids: Vec<String>, reason: &str);
 }
 
 /// No-op event emitter for testing.
@@ -114,6 +118,7 @@ impl SyncEventEmitter for NoOpEmitter {
     fn emit_status(&self, _status: &SyncStatus) {}
     fn emit_progress(&self, _pending: i64, _synced: i64) {}
     fn emit_error(&self, _message: &str, _retryable: bool) {}
+    fn emit_inventory_update(&self, _product_ids: Vec<String>, _reason: &str) {}
 }
 
 // =============================================================================
@@ -185,11 +190,17 @@ impl SyncAgent {
     ///
     /// This spawns background tasks for transport, outbox processing, and
     /// inbound handling. The agent continues running until shutdown is called.
-    pub async fn start(&mut self) -> SyncResult<()> {
+    ///
+    /// # Returns
+    /// A `SyncAgentHandle` that must be kept alive to keep the agent running.
+    /// Dropping the handle will trigger agent shutdown.
+    pub async fn start(&mut self) -> SyncResult<SyncAgentHandle> {
         // Check if sync is enabled
         if !self.config.is_sync_enabled() {
             info!("Sync is disabled (mode: offline)");
-            return Ok(());
+            // Return a dummy handle - the agent isn't actually running
+            let (shutdown_tx, _) = mpsc::channel(1);
+            return Ok(SyncAgentHandle::new(shutdown_tx, self.status.clone()));
         }
 
         // Validate configuration
@@ -242,28 +253,62 @@ impl SyncAgent {
             self.db.clone(),
             self.config.clone(),
             transport_handle.clone(),
+            self.emitter.clone(),
         );
         self.inbound_handle = Some(inbound_handle.clone());
 
         // Create shutdown channel
+        // Clone the sender because we need to:
+        // 1. Store one copy in self.shutdown_tx for the agent's own shutdown() method
+        // 2. Return one copy in the SyncAgentHandle
         let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+        let shutdown_tx_for_handle = shutdown_tx.clone();
         self.shutdown_tx = Some(shutdown_tx);
 
         // Spawn background tasks
         tokio::spawn(outbox_processor.run());
         tokio::spawn(inbound_handler.run());
 
+        // Spawn task to send Hello once connected
+        // This is needed because the hub waits for Hello before sending Welcome
+        let config_for_hello = self.config.clone();
+        let transport_for_hello = transport_handle.clone();
+        tokio::spawn(async move {
+            // Wait for connection to be established
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                if transport_for_hello.is_connected().await {
+                    // Send Hello message
+                    let hello = SyncMessage::hello(
+                        config_for_hello.device_id(),
+                        &config_for_hello.device.name,
+                        config_for_hello.store_id(),
+                        config_for_hello.device.priority,
+                    );
+
+                    info!("Transport connected, sending Hello message");
+                    if let Err(e) = transport_for_hello.send(hello).await {
+                        error!(?e, "Failed to send Hello");
+                    } else {
+                        info!("Hello message sent successfully");
+                    }
+                    break;
+                }
+            }
+        });
+
         // Spawn message router
         let config = self.config.clone();
         let status = self.status.clone();
         let emitter = self.emitter.clone();
+        let transport_for_router = transport_handle.clone();
 
         tokio::spawn(Self::message_router(
             config,
             status,
             emitter,
             incoming_rx,
-            transport_handle,
+            transport_for_router,
             outbox_handle,
             inbound_handle,
             shutdown_rx,
@@ -276,7 +321,15 @@ impl SyncAgent {
         }
 
         info!("Sync agent started");
-        Ok(())
+        
+        // Return handle - CRITICAL: caller MUST keep this alive!
+        // Dropping the handle will trigger shutdown via channel closure.
+        // Include transport handle for SECONDARY to send inventory deltas
+        Ok(SyncAgentHandle::new_with_transport(
+            shutdown_tx_for_handle,
+            self.status.clone(),
+            transport_handle,
+        ))
     }
 
     /// Stops the sync agent gracefully.
@@ -363,6 +416,20 @@ impl SyncAgent {
                                 error!(?e, "Failed to route entity update");
                             }
                         }
+                        
+                        SyncMessage::InventoryUpdate(update) => {
+                            // Route inventory updates to inbound handler
+                            // This applies the stock delta from PRIMARY to SECONDARY's local database
+                            info!(
+                                product_id = %update.product_id,
+                                delta = update.delta_quantity,
+                                source = %update.source_device_id,
+                                "Received InventoryUpdate from PRIMARY"
+                            );
+                            if let Err(e) = inbound_handle.handle_inventory_update(update).await {
+                                error!(?e, "Failed to apply inventory update");
+                            }
+                        }
 
                         SyncMessage::Ping { .. } => {
                             // Send pong (handled by transport layer, but log it)
@@ -422,23 +489,71 @@ impl SyncAgent {
 ///
 /// This is used by the Tauri app to control the sync agent without
 /// needing direct access to the agent instance.
+#[derive(Clone)]
 pub struct SyncAgentHandle {
     /// Shutdown sender.
     shutdown_tx: mpsc::Sender<()>,
 
     /// Status accessor.
     status: Arc<RwLock<SyncStatus>>,
+    
+    /// Transport handle for sending messages (SECONDARY mode).
+    transport: Option<TransportHandle>,
 }
 
 impl SyncAgentHandle {
     /// Creates a new handle from agent internals.
-    pub(crate) fn new(
+    /// 
+    /// # IMPORTANT
+    /// This handle must be kept alive for the sync agent to continue running.
+    /// When all handles are dropped, the shutdown channel closes and the agent
+    /// will shut down gracefully.
+    pub fn new(
         shutdown_tx: mpsc::Sender<()>,
         status: Arc<RwLock<SyncStatus>>,
     ) -> Self {
         SyncAgentHandle {
             shutdown_tx,
             status,
+            transport: None,
+        }
+    }
+    
+    /// Creates a new handle with transport access (for SECONDARY mode).
+    pub fn new_with_transport(
+        shutdown_tx: mpsc::Sender<()>,
+        status: Arc<RwLock<SyncStatus>>,
+        transport: TransportHandle,
+    ) -> Self {
+        SyncAgentHandle {
+            shutdown_tx,
+            status,
+            transport: Some(transport),
+        }
+    }
+    
+    /// Sends an inventory delta to the hub (SECONDARY mode only).
+    /// 
+    /// This is used when SECONDARY makes a sale and needs to notify PRIMARY
+    /// about the stock change so it can be broadcast to other secondaries.
+    pub async fn send_inventory_delta(
+        &self,
+        product_id: &str,
+        sku: &str,
+        delta_qty: i32,
+    ) -> SyncResult<bool> {
+        if let Some(ref transport) = self.transport {
+            let delta = crate::protocol::InventoryDelta {
+                product_id: product_id.to_string(),
+                sku: sku.to_string(),
+                delta_quantity: delta_qty,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+            
+            transport.send(SyncMessage::InventoryDelta(delta)).await?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 

@@ -53,6 +53,11 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+# Standalone hub server binary
+[[bin]]
+name = "hub-server"
+path = "src/bin/hub_server.rs"
+
 [dependencies]
 # Internal dependencies
 titan-core = { path = "../titan-core" }
@@ -81,6 +86,9 @@ serde_json = { workspace = true }
 toml = "0.8"
 directories = "5"
 
+# Async trait support (for dyn-compatible async traits)
+async-trait = "0.1"
+
 # Error handling
 thiserror = { workspace = true }
 
@@ -89,6 +97,7 @@ backoff = { version = "0.4", features = ["tokio"] }
 
 # Logging
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 # UUIDs
 uuid = { workspace = true }

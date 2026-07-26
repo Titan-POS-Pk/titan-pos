@@ -333,6 +333,8 @@ impl Transport {
 
         let mut ping_interval = tokio::time::interval(self.config.ping_interval);
         ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // Consume the first immediate tick - we don't want to send PING before Hello
+        ping_interval.tick().await;
 
         loop {
             tokio::select! {

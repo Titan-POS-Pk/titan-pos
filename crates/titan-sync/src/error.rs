@@ -182,6 +182,10 @@ pub enum SyncError {
     #[error("Election error: {0}")]
     ElectionError(String),
 
+    /// Store ID mismatch (client trying to connect to wrong hub).
+    #[error("Store ID mismatch: expected {expected}, got {actual}")]
+    StoreMismatch { expected: String, actual: String },
+
     // =========================================================================
     // Cloud Uplink Errors (Milestone 3)
     // =========================================================================

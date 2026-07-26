@@ -128,11 +128,13 @@ pub mod aggregator;
 pub mod discovery;
 pub mod election;
 pub mod hub;
+pub mod hub_core;
 
 // Cloud Uplink modules (Milestone 3)
 pub mod proto;
 pub mod cloud_auth;
 pub mod cloud_uplink;
+pub mod cloud_uplink_adapter;
 
 // Multi-Store modules (Milestone 4)
 pub mod store_db;
@@ -154,10 +156,12 @@ pub use aggregator::{AggregatorConfig, AggregatorHandle, InventoryAggregator};
 pub use discovery::{DiscoveredHub, DiscoveryConfig, DiscoveryHandle, DiscoveryService};
 pub use election::{ElectionConfig, ElectionHandle, ElectionService, ElectionState, NodeRole};
 pub use hub::{HubConfig, HubHandle, HubServer};
+pub use hub_core::{HubCore, HubStats, CloudUplinkCallback, ConnectedClient, NoOpCloudUplink};
 
 // Milestone 3 types
 pub use cloud_auth::{CloudAuth, CloudAuthConfig, TokenInfo};
 pub use cloud_uplink::{CloudUplink, CloudUplinkConfig};
+pub use cloud_uplink_adapter::CloudUplinkAdapter;
 
 // Milestone 4 types
 pub use store_db::StoreDatabase;
