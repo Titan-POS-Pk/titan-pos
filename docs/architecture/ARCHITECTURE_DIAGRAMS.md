@@ -319,19 +319,15 @@ Parallel States:
 ```
 titan-pos/
 ├── .github/
-│   ├── workflows/
-│   │   ├── ci.yml                    # Build & Test
-│   │   ├── release.yml               # Build installers
-│   │   └── security.yml              # Dependency audit
-│   └── copilot-instructions.md       # AI coding guidelines
+│   └── workflows/
+│       └── ci.yml                    # Check, test, clippy, fmt, frontend
 │
 ├── docs/
 │   ├── architecture/
 │   │   ├── ARCHITECTURE_DECISIONS.md # ADRs
 │   │   ├── ARCHITECTURE_DIAGRAMS.md  # This file
-│   │   └── CRATE_GUIDE.md            # Crate responsibilities
-│   ├── api/
-│   │   └── TAURI_COMMANDS.md         # Command reference
+│   │   ├── CRATE_GUIDE.md            # Crate responsibilities
+│   │   └── SYNC_ARCHITECTURE.md      # Hub election, CRDT sync
 │   └── CONTRIBUTING.md               # Dev setup guide
 │
 ├── crates/
@@ -421,7 +417,3 @@ titan-pos/
 └── README.md
 ```
 
----
-
-*Diagrams maintained by: AI Architect*  
-*Review cycle: On major structural changes*

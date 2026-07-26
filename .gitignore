@@ -170,3 +170,11 @@ dist-ssr/
 .context/
 .github/copilot-instructions.md
 CLAUDE.md
+
+# =============================================================================
+# Local working notes
+# =============================================================================
+# Scratch planning and progress files, kept on disk but not part of the docs.
+docs/PROGRESS.md
+docs/QUICK_REFERENCE_CARD.md
+docs/architecture/PRE_DEVELOPMENT_QUESTIONNAIRE.md

@@ -1,8 +1,7 @@
 # Titan POS: Multi-Store Sync Architecture
 
-> **Status**: PROPOSAL - Awaiting Review  
-> **Version**: 0.2.0 "Sync Agent"  
-> **Last Updated**: February 1, 2026
+> How multi-device sync works: device hierarchy, hub election, CRDT inventory
+> and the cloud uplink. Implemented in `crates/titan-sync`.
 
 ---
 
@@ -752,57 +751,45 @@ apps/
 
 ---
 
-## 10. Decision Points for You
+## 10. Decisions Taken
 
-Before proceeding, please confirm:
+These were open when this document was written. What v0.2 shipped, and why.
 
-### Q1: Store Server vs Direct-to-Cloud
+### Store server hub, not direct-to-cloud
 
-| Option | Best For | Our Choice |
-|--------|----------|------------|
-| A: Direct-to-Cloud | Small retailers (1-5 POS) | |
-| B: Store Server Hub | Enterprise (10+ POS) | ⭐ Recommended |
-| C: Hybrid | Mixed deployment | |
+Every till talks to a store-local hub; only the hub talks to the cloud.
+Direct-to-cloud would have been simpler for a 1–5 till shop, but the
+latency budget is set by the case that matters — two lanes selling the
+last unit of the same SKU — and that has to resolve inside the store,
+without a round trip to a region.
 
-**Your Decision**: _____________
+### The hub is an elected till, not dedicated hardware
 
-### Q2: Store Server Hardware
+Rather than require a back-office PC or a Pi, the first till to start
+elects itself PRIMARY and the rest attach as SECONDARY
+(`crates/titan-sync/src/election.rs`). A dedicated box can still be run:
+`hub_server` is a standalone binary and `mode = "primary"` pins the role.
+The tradeoff is that failover has to be correct, which is where the
+split-brain guard in `run_election` earns its place.
 
-| Option | Description |
-|--------|-------------|
-| A: Dedicated PC | Small form-factor PC in back office |
-| B: Raspberry Pi | Low cost, ARM-based |
-| C: Cloud VM (per-store) | Virtual private server in nearby region |
-| D: One POS acts as server | Designate one checkout as "master" |
+### WebSocket + Protobuf on the LAN, gRPC to the cloud
 
-**My Recommendation**: Option A or D (depending on budget)
+Inside the store the traffic is small, frequent inventory deltas, so a
+binary framing on one long-lived socket wins over JSON on payload size and
+over full gRPC on complexity. The hub's uplink is gRPC
+(`crates/titan-sync/src/cloud_uplink.rs`), where streaming and typed
+service definitions do pay for themselves.
 
-**Your Decision**: _____________
+### What still goes straight to the cloud
 
-### Q3: Sync Protocol
-
-| Option | Description |
-|--------|-------------|
-| A: WebSocket + JSON | Simple, human-readable, larger payloads |
-| B: WebSocket + Protobuf | Binary, typed, smaller payloads |
-| C: gRPC | Full RPC framework, bidirectional streaming |
-
-**My Recommendation**: Option B (WebSocket + Protobuf)
-
-**Your Decision**: _____________
-
-### Q4: When Does POS Talk to Cloud Directly?
-
-| Scenario | Via Store Server | Direct to Cloud |
-|----------|------------------|-----------------|
+| Scenario | Via store hub | Direct to cloud |
+|----------|---------------|-----------------|
 | Sales sync | ✓ | |
 | Inventory updates | ✓ | |
 | Product catalog | ✓ | |
 | Licensing/activation | | ✓ |
 | Software updates | | ✓ |
 | Telemetry/analytics | | ✓ (optional) |
-
-**Your Decision**: Confirm or modify this split
 
 ---
 
@@ -818,8 +805,8 @@ Before proceeding, please confirm:
 │  • Owns: Local sales, payments, sync outbox                                 │
 │  • Caches: Products (from store), inventory (real-time updates)             │
 │                                                                              │
-│  Level 2: STORE (PostgreSQL on Store Server)                                │
-│  • One server per physical store location                                   │
+│  Level 2: STORE (SQLite on the elected PRIMARY)                             │
+│  • One hub per physical store location                                      │
 │  • Owns: Store-level inventory, aggregated sales, cashier users             │
 │  • Real-time sync: Sub-20ms inventory updates across all POS                │
 │                                                                              │
@@ -830,8 +817,3 @@ Before proceeding, please confirm:
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-*Document maintained by: AI Architect*  
-*Next review: After decision confirmation*

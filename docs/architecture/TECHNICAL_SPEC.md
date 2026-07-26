@@ -1,8 +1,8 @@
 # Titan POS v0.1 - Technical Specifications
 
-> **Status**: ✅ APPROVED - Ready for Implementation  
-> **Version**: 0.1.0 "Logical Core"  
-> **Last Updated**: January 31, 2026
+> The parameters v0.1 was built to. Where the shipped code and this document
+> disagree, the code is authoritative — see `crates/titan-core` for the money
+> and validation rules.
 
 ---
 
@@ -222,40 +222,31 @@ open http://localhost:8080  # Adminer
 ```
 titan-pos/
 ├── .github/
-│   ├── workflows/
-│   │   └── ci.yml
-│   └── copilot-instructions.md
-├── .context/
-│   └── PROJECT_CONTEXT.md
+│   └── workflows/
+│       └── ci.yml
+├── .sqlx/                    # sqlx offline query cache (tracked)
 ├── crates/
 │   ├── titan-core/           # Pure business logic
 │   ├── titan-db/             # Database layer
 │   └── titan-sync/           # Sync engine
 ├── apps/
-│   └── desktop/              # Tauri application
-│       ├── src-tauri/
-│       └── src/
+│   ├── desktop/              # Tauri application
+│   │   ├── src-tauri/        # Rust backend + its own package.json
+│   │   └── src/              # SolidJS frontend
+│   └── cloud-api/            # Cloud gRPC server
 ├── migrations/
 │   ├── sqlite/               # Local DB migrations
 │   └── postgres/             # Cloud DB migrations
+├── proto/                    # Protobuf definitions
+├── scripts/                  # Multi-instance dev helpers
 ├── docs/
 │   ├── architecture/
-│   ├── PROGRESS.md
 │   └── CONTRIBUTING.md
 ├── docker-compose.yml
 ├── Cargo.toml                # Workspace root
-├── package.json              # pnpm workspace
+├── Cargo.lock                # Tracked: every member is a binary
 └── README.md
 ```
 
----
-
-## Next Steps
-
-1. **You confirm**: Reply "proceed" or ask any clarifying questions
-2. **I create**: Rust workspace, Tauri scaffold, database migrations
-3. **We build**: Milestone 1 (Foundation) → Milestone 4 (Complete v0.1)
-
----
-
-*This document supersedes all previous specifications for v0.1*
+There is no root `package.json`. The only npm workspace is
+`apps/desktop`, which is where `pnpm install` and `pnpm build` run.

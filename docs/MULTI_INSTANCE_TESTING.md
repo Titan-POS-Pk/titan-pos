@@ -323,7 +323,7 @@ rm -rf data/pos1 data/pos2
 
 ## Additional Resources
 
-- [Architecture Guide](../../docs/architecture/SYNC_ARCHITECTURE.md)
-- [Progress Document](../../docs/PROGRESS.md)
-- [Vite Configuration](vite.config.ts)
-- [Tauri Configuration](src-tauri/tauri.conf.json)
+- [Sync architecture](architecture/SYNC_ARCHITECTURE.md)
+- [Running the sync modes](RUNNING_SYNC_MODES.md)
+- [Vite configuration](../apps/desktop/vite.config.ts)
+- [Tauri configuration](../apps/desktop/src-tauri/tauri.conf.json)

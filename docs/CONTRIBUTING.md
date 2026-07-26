@@ -369,10 +369,6 @@ See [CRATE_GUIDE.md](architecture/CRATE_GUIDE.md) for detailed responsibilities.
 ## Getting Help
 
 - **Architecture questions**: Review [docs/architecture/](architecture/)
-- **API questions**: Review [Tauri Commands](api/TAURI_COMMANDS.md)
+- **Tauri command signatures**: `apps/desktop/src-tauri/src/commands/`
 - **Bug reports**: Open GitHub issue with reproduction steps
 - **Feature requests**: Open GitHub issue with use case
-
----
-
-*Happy coding! 🚀*
