@@ -89,13 +89,22 @@ impl CartItem {
     }
 
     /// Calculates the line total (unit price × quantity).
+    ///
+    /// Goes through `Money` rather than a bare `i64 *` so an out-of-range
+    /// price panics instead of wrapping into a negative line in release builds.
+    /// `validate_price_cents` and `MAX_ITEM_QUANTITY` keep legal carts far
+    /// below that ceiling.
     pub fn line_total_cents(&self) -> i64 {
-        self.unit_price_cents * self.quantity
+        Money::from_cents(self.unit_price_cents)
+            .multiply_quantity(self.quantity)
+            .cents()
     }
 
     /// Calculates the tax amount for this line item.
     ///
     /// Uses Bankers Rounding (round half to even) for financial accuracy.
+    /// Tax is computed per line, so the rounding residue of one line never
+    /// shifts another line's tax.
     pub fn tax_cents(&self) -> i64 {
         let line_total = Money::from_cents(self.line_total_cents());
         line_total
@@ -105,7 +114,7 @@ impl CartItem {
 
     /// Calculates line total including tax.
     pub fn line_total_with_tax_cents(&self) -> i64 {
-        self.line_total_cents() + self.tax_cents()
+        (Money::from_cents(self.line_total_cents()) + Money::from_cents(self.tax_cents())).cents()
     }
 }
 
@@ -226,17 +235,28 @@ impl Cart {
 
     /// Calculates the subtotal (before tax).
     pub fn subtotal_cents(&self) -> i64 {
-        self.items.iter().map(|i| i.line_total_cents()).sum()
+        self.items
+            .iter()
+            .fold(Money::zero(), |acc, i| {
+                acc + Money::from_cents(i.line_total_cents())
+            })
+            .cents()
     }
 
     /// Calculates the total tax.
+    ///
+    /// Sum of per-line tax, not tax on the subtotal. The two differ by up to
+    /// a cent per line, and per-line is what the receipt has to show.
     pub fn tax_cents(&self) -> i64 {
-        self.items.iter().map(|i| i.tax_cents()).sum()
+        self.items
+            .iter()
+            .fold(Money::zero(), |acc, i| acc + Money::from_cents(i.tax_cents()))
+            .cents()
     }
 
     /// Calculates the grand total (subtotal + tax).
     pub fn total_cents(&self) -> i64 {
-        self.subtotal_cents() + self.tax_cents()
+        (Money::from_cents(self.subtotal_cents()) + Money::from_cents(self.tax_cents())).cents()
     }
 
     /// Checks if the cart is empty.
@@ -383,9 +403,28 @@ mod tests {
 
         cart.add_item(&product, 1).unwrap();
 
-        // Tax: $10.00 × 8.25% = $0.825 → $0.83 (standard rounding with +5000)
-        assert_eq!(cart.tax_cents(), 83);
-        assert_eq!(cart.total_cents(), 1083); // $10.83
+        // Tax: $10.00 × 8.25% = exactly 82.5 cents. Banker's rounding breaks
+        // the tie toward the even neighbour: 82.
+        assert_eq!(cart.tax_cents(), 82);
+        assert_eq!(cart.total_cents(), 1082); // $10.82
+    }
+
+    /// Refunding a cart must return exactly what it charged. This is the
+    /// cart-level version of the `money.rs` symmetry regression test.
+    #[test]
+    fn test_cart_tax_matches_its_refund() {
+        let mut sale = Cart::new();
+        let mut refund = Cart::new();
+
+        // A mix of prices, several of which land on a .5 tie at 8.25%.
+        for (i, price) in [1000i64, 199, 4999, 200, 600].into_iter().enumerate() {
+            let id = i.to_string();
+            sale.add_item(&test_product(&id, price), 3).unwrap();
+            refund.add_item(&test_product(&id, -price), 3).unwrap();
+        }
+
+        assert_eq!(sale.tax_cents(), -refund.tax_cents());
+        assert_eq!(sale.total_cents(), -refund.total_cents());
     }
 
     #[test]

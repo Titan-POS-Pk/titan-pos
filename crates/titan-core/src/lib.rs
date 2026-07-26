@@ -108,7 +108,19 @@ pub const MAX_CART_ITEMS: usize = 100;
 
 /// Maximum quantity of a single item in cart
 ///
-/// ## Business Reason  
+/// ## Business Reason
 /// Prevents accidental over-ordering (e.g., typing 1000 instead of 10)
 /// Configurable per-tenant in future versions.
 pub const MAX_ITEM_QUANTITY: i64 = 999;
+
+/// Maximum price of a single item, in cents ($1,000,000,000.00).
+///
+/// ## Why a ceiling at all
+/// Any price above this is a data-entry error, not a product. Bounding it here
+/// is also what keeps cart arithmetic inside i64: the worst legal cart is
+/// `MAX_PRICE_CENTS × MAX_ITEM_QUANTITY × MAX_CART_ITEMS ≈ 1.0e16` cents,
+/// roughly 920× below `i64::MAX`. Without the bound, a price near `i64::MAX`
+/// would overflow the line total, which wraps silently in release builds.
+///
+/// See `validation::tests::test_worst_case_cart_fits_in_i64`.
+pub const MAX_PRICE_CENTS: i64 = 100_000_000_000;

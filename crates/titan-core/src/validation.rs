@@ -38,7 +38,7 @@
 //! ```
 
 use crate::error::ValidationError;
-use crate::{MAX_CART_ITEMS, MAX_ITEM_QUANTITY};
+use crate::{MAX_CART_ITEMS, MAX_ITEM_QUANTITY, MAX_PRICE_CENTS};
 
 /// Result type for validation operations.
 pub type ValidationResult<T> = Result<T, ValidationError>;
@@ -196,6 +196,10 @@ pub fn validate_quantity(qty: i64) -> ValidationResult<()> {
 /// ## Rules
 /// - Must be non-negative (>= 0)
 /// - Zero is allowed (free items)
+/// - Must not exceed [`MAX_PRICE_CENTS`]
+///
+/// The upper bound is not cosmetic: it is what guarantees that
+/// `price × quantity × items` stays inside i64 for any legal cart.
 ///
 /// ## Example
 /// ```rust
@@ -204,13 +208,14 @@ pub fn validate_quantity(qty: i64) -> ValidationResult<()> {
 /// assert!(validate_price_cents(1099).is_ok());  // $10.99
 /// assert!(validate_price_cents(0).is_ok());     // Free item
 /// assert!(validate_price_cents(-100).is_err()); // Invalid
+/// assert!(validate_price_cents(i64::MAX).is_err()); // Would overflow a cart
 /// ```
 pub fn validate_price_cents(cents: i64) -> ValidationResult<()> {
-    if cents < 0 {
+    if !(0..=MAX_PRICE_CENTS).contains(&cents) {
         return Err(ValidationError::OutOfRange {
             field: "price".to_string(),
             min: 0,
-            max: i64::MAX,
+            max: MAX_PRICE_CENTS,
         });
     }
 
@@ -347,6 +352,9 @@ mod tests {
         assert!(validate_price_cents(0).is_ok());
         assert!(validate_price_cents(1099).is_ok());
         assert!(validate_price_cents(-100).is_err());
+        assert!(validate_price_cents(MAX_PRICE_CENTS).is_ok());
+        assert!(validate_price_cents(MAX_PRICE_CENTS + 1).is_err());
+        assert!(validate_price_cents(i64::MAX).is_err());
     }
 
     #[test]
@@ -363,5 +371,27 @@ mod tests {
         assert!(validate_tax_rate_bps(825).is_ok());
         assert!(validate_tax_rate_bps(10000).is_ok());
         assert!(validate_tax_rate_bps(10001).is_err());
+    }
+
+    /// The whole point of bounding `MAX_PRICE_CENTS` is that the largest cart
+    /// the validators will accept still fits in i64 with room for tax on top.
+    /// If someone raises a limit, this test is what tells them they have
+    /// re-opened the overflow.
+    #[test]
+    fn test_worst_case_cart_fits_in_i64() {
+        let worst_line = MAX_PRICE_CENTS
+            .checked_mul(MAX_ITEM_QUANTITY)
+            .expect("max line total must not overflow i64");
+
+        let worst_cart = worst_line
+            .checked_mul(MAX_CART_ITEMS as i64)
+            .expect("max cart subtotal must not overflow i64");
+
+        // Plus 100% tax, the highest rate `validate_tax_rate_bps` allows.
+        let worst_total = worst_cart
+            .checked_add(worst_cart)
+            .expect("max cart total incl. tax must not overflow i64");
+
+        assert!(worst_total > 0, "worst-case total wrapped negative");
     }
 }
