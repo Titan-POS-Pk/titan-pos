@@ -23,11 +23,17 @@
 //! - Grocery (canned goods, pasta, rice)
 //!
 //! Each product has:
-//! - Unique SKU: `{CATEGORY}-{INDEX}`
+//! - Unique SKU: `{CATEGORY}-{NAM}-{INDEX}`, e.g. `BEV-COC-000`
 //! - Realistic name
 //! - Random price: $0.99 - $19.99
 //! - Random stock: 0 - 100
 //! - Random tax rate: 0%, 5%, 8.25%, 10%
+//!
+//! ## Counts above the fixed catalogue
+//! The catalogue is 5 categories x 20 names x 10 sizes = 1,000 distinct
+//! entries. Any `--count` above that cycles the catalogue, suffixing the
+//! display name with the pass number (`Coca-Cola 12oz v2`) so SKUs, barcodes
+//! and names stay unique. `--count 50000` produces 50,000 rows.
 
 use chrono::Utc;
 use std::env;
@@ -250,43 +256,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("Generating products...");
 
-    let mut generated = 0;
+    let mut generated = 0usize;
     let start = std::time::Instant::now();
 
-    for (category_idx, (category_code, products)) in CATEGORIES.iter().enumerate() {
-        for (product_idx, product_name) in products.iter().enumerate() {
-            for (size_idx, (size_name, price_addon)) in SIZES.iter().enumerate() {
-                if generated >= count {
-                    break;
-                }
+    // The fixed catalogue is CATEGORIES x names x SIZES entries. To reach a
+    // count larger than that, cycle it and give each pass a distinct suffix,
+    // so SKUs, barcodes and names all stay unique. `generated` is the seed, so
+    // it is unique by construction.
+    'outer: for pass in 0.. {
+        for (category_code, products) in CATEGORIES.iter() {
+            for product_name in products.iter() {
+                for (size_name, price_addon) in SIZES.iter() {
+                    if generated >= count {
+                        break 'outer;
+                    }
 
-                let product = generate_product(
-                    category_code,
-                    product_name,
-                    size_name,
-                    *price_addon,
-                    category_idx * 1000 + product_idx * 20 + size_idx,
-                );
+                    let product = generate_product(
+                        category_code,
+                        product_name,
+                        size_name,
+                        *price_addon,
+                        generated,
+                        pass,
+                    );
 
-                if let Err(e) = db.products().insert(&product).await {
-                    eprintln!("Failed to insert {}: {}", product.sku, e);
-                    continue;
-                }
+                    if let Err(e) = db.products().insert(&product).await {
+                        eprintln!("Failed to insert {}: {}", product.sku, e);
+                        continue;
+                    }
 
-                generated += 1;
+                    generated += 1;
 
-                if generated % 500 == 0 {
-                    println!("  Generated {} products...", generated);
+                    if generated.is_multiple_of(5000) {
+                        println!("  Generated {} products...", generated);
+                    }
                 }
             }
-
-            if generated >= count {
-                break;
-            }
-        }
-
-        if generated >= count {
-            break;
         }
     }
 
@@ -314,12 +319,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Generates a single product with realistic data.
+///
+/// `seed` is the global index and is what makes the SKU and barcode unique.
+/// `pass` is how many times the fixed catalogue has been cycled; it is
+/// appended to the display name from the second pass onward so the FTS index
+/// does not fill up with identical names.
 fn generate_product(
     category: &str,
     name: &str,
     size: &str,
     price_addon: i64,
     seed: usize,
+    pass: usize,
 ) -> Product {
     let now = Utc::now();
 
@@ -349,7 +360,11 @@ fn generate_product(
     let current_stock = Some((seed % 101) as i64);
 
     // Full product name with size
-    let full_name = format!("{} {}", name, size);
+    let full_name = if pass == 0 {
+        format!("{} {}", name, size)
+    } else {
+        format!("{} {} v{}", name, size, pass + 1)
+    };
 
     Product {
         id: Uuid::new_v4().to_string(),

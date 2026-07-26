@@ -74,3 +74,9 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 [[bin]]
 name = "seed"
 path = "src/bin/seed.rs"
+
+# Reproduces the search latency table in the README.
+# `cargo run --release -p titan-db --bin bench_search`
+[[bin]]
+name = "bench_search"
+path = "src/bin/bench_search.rs"
