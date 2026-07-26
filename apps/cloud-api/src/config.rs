@@ -96,10 +96,10 @@ impl CloudConfig {
         };
 
         // Validate TLS configuration
-        if config.tls_enabled {
-            if config.tls_cert_path.is_none() || config.tls_key_path.is_none() {
-                return Err(ConfigError::MissingTlsConfig);
-            }
+        if config.tls_enabled
+            && (config.tls_cert_path.is_none() || config.tls_key_path.is_none())
+        {
+            return Err(ConfigError::MissingTlsConfig);
         }
 
         Ok(config)

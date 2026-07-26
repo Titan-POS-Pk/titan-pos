@@ -75,13 +75,16 @@ impl NotificationService for NotificationServiceImpl {
         info!(store_id = %store_id, "New notification subscription");
 
         let (tx, rx) = mpsc::channel(64);
-        let state = self.state.clone();
+        let _state = self.state.clone();
 
         // Spawn task to handle the subscription
         tokio::spawn(async move {
             let mut heartbeat_interval = interval(HEARTBEAT_INTERVAL);
             let mut notification_counter: u64 = 0;
-            let mut subscribed_topics: Vec<String> = Vec::new();
+            // TODO: topic filtering is not implemented yet - every subscriber
+            // currently receives every notification for the store. Tracked so
+            // the field is not silently dropped.
+            let mut _subscribed_topics: Vec<String> = Vec::new();
 
             loop {
                 tokio::select! {
@@ -97,7 +100,7 @@ impl NotificationService for NotificationServiceImpl {
 
                                 // Update subscribed topics
                                 if !msg.topics.is_empty() {
-                                    subscribed_topics = msg.topics;
+                                    _subscribed_topics = msg.topics;
                                 }
 
                                 // Client acknowledged heartbeat

@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming};
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 
 use crate::auth::{extract_bearer_token, JwtManager};
 use crate::db::{InventoryDeltaRecord, PaymentRecord, SaleItemRecord, SaleRecord};
@@ -310,7 +310,7 @@ impl SyncService for SyncServiceImpl {
         let mut stream = request.into_inner();
 
         let state = self.state.clone();
-        let jwt_manager = JwtManager::new(
+        let _jwt_manager = JwtManager::new(
             state.config.jwt_secret.clone(),
             state.config.jwt_access_lifetime_secs,
             state.config.jwt_refresh_lifetime_secs,

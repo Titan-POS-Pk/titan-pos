@@ -52,7 +52,6 @@
 //! └──────────────────────────────────────────────────────────────────────────┘
 //! ```
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter};
@@ -370,8 +369,8 @@ impl From<SyncStatus> for SyncStatusDto {
             ConnectionState::Disconnected => "disconnected",
             ConnectionState::Connecting => "connecting",
             ConnectionState::Connected => "connected",
-            ConnectionState::Backoff { .. } => "backoff",
-            ConnectionState::Reconnecting { .. } => "reconnecting",
+            ConnectionState::Backoff => "backoff",
+            ConnectionState::Reconnecting => "reconnecting",
         };
 
         let sync_mode = match status.mode {

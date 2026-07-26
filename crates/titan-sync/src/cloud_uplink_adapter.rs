@@ -232,7 +232,6 @@ impl CloudUplinkCallback for CloudUplinkAdapter {
 mod tests {
     use super::*;
     use crate::cloud_uplink::CloudUplinkConfig;
-    use std::time::Duration;
 
     // Note: These tests require a running cloud-api server
     // Use `docker compose --profile cloud up -d` to start it

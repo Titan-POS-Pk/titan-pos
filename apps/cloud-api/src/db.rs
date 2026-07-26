@@ -3,9 +3,7 @@
 //! Provides PostgreSQL connectivity and repository methods.
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use sqlx::Row;
-use tracing::info;
-use uuid::Uuid;
+
 use chrono::{DateTime, Utc};
 
 use crate::error::CloudError;
@@ -126,8 +124,8 @@ impl Database {
         .bind(sale.discount_amount_cents)
         .bind(sale.total_cents)
         .bind(&sale.status)
-        .bind(&sale.created_at)
-        .bind(&sale.completed_at)
+        .bind(sale.created_at)
+        .bind(sale.completed_at)
         .execute(&self.pool)
         .await
         .map_err(|e| CloudError::Database(e.to_string()))?;
@@ -185,7 +183,7 @@ impl Database {
         .bind(payment.change_given_cents)
         .bind(&payment.reference)
         .bind(&payment.authorization_code)
-        .bind(&payment.created_at)
+        .bind(payment.created_at)
         .execute(&self.pool)
         .await
         .map_err(|e| CloudError::Database(e.to_string()))?;
@@ -213,7 +211,7 @@ impl Database {
         .bind(delta.delta)
         .bind(&delta.reason)
         .bind(&delta.reference_id)
-        .bind(&delta.created_at)
+        .bind(delta.created_at)
         .execute(&self.pool)
         .await
         .map_err(|e| CloudError::Database(e.to_string()))?;

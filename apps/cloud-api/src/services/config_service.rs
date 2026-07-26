@@ -14,7 +14,6 @@ use crate::proto::{
     GetStoreConfigRequest, GetStoreConfigResponse,
     StoreConfig as ProtoStoreConfig,
     UpdateConfigValueRequest, UpdateConfigValueResponse,
-    Timestamp as ProtoTimestamp,
 };
 use crate::AppState;
 

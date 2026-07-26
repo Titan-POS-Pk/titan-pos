@@ -42,11 +42,10 @@
 //! ```
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use sqlx::Row;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 use crate::error::{SyncError, SyncResult};
 use crate::protocol::{AggregationSummary, InventoryMover, PaymentSummary, SalesSummary};

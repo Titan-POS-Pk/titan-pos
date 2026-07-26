@@ -425,7 +425,7 @@ fn print_help() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    let _subscriber = FmtSubscriber::builder()
+    FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
         .with_target(true)
         .pretty()

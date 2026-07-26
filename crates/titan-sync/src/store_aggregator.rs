@@ -53,7 +53,7 @@ use tracing::{debug, error, info, warn};
 use crate::config::AggregationSettings;
 use crate::error::{SyncError, SyncResult};
 use crate::protocol::{
-    AggregationSummary, InventoryDelta, InventoryUpdate, PaymentSummary, SalesSummary, SyncMessage,
+    AggregationSummary, SalesSummary,
 };
 use crate::store_db::StoreDatabase;
 
@@ -379,7 +379,7 @@ impl StoreAggregator {
                     // Check for daily reset
                     let now = Utc::now();
                     let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
-                    if last_daily_reset.map_or(true, |t| t < today_start) {
+                    if last_daily_reset.is_none_or(|t| t < today_start) {
                         self.daily_reset().await;
                         last_daily_reset = Some(now);
                     }

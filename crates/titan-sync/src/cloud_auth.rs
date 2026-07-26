@@ -47,7 +47,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
 use tonic::metadata::MetadataValue;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Margin before token expiration to trigger refresh (5 minutes)
 const REFRESH_MARGIN_SECS: u64 = 300;

@@ -212,6 +212,7 @@ fn init_tracing() {
 /// When testing multiple devices on the same machine, each device gets its own database:
 /// - `TITAN_DEVICE_ID="pos-alpha"` → `data/titan-pos-alpha.db`
 /// - `TITAN_DEVICE_ID="pos-beta"` → `data/titan-pos-beta.db`
+///
 /// This enables realistic sync testing where each device has truly separate data.
 ///
 /// ## Development Workflow
@@ -587,7 +588,9 @@ async fn start_sync_agent_if_configured(
             });
         }
 
-        "offline" | _ => {
+        // "offline", plus anything unrecognised: an unknown mode string must
+        // not silently start syncing.
+        _ => {
             info!("Sync disabled (offline mode)");
             let status = state::SyncStatusDto {
                 connection_state: "offline".to_string(),
@@ -796,7 +799,7 @@ async fn start_primary_hub(
     }
 
     async fn handle_socket(socket: WebSocket, state: HubState) {
-        let (mut sender, mut receiver) = socket.split();
+        let (sender, mut receiver) = socket.split();
         let mut rx = state.broadcast_tx.subscribe();
 
         // Increment client count
@@ -852,7 +855,7 @@ async fn start_primary_hub(
                             });
                             
                             let mut s = sender.lock().await;
-                            if s.send(Message::Text(welcome.to_string().into())).await.is_ok() {
+                            if s.send(Message::Text(welcome.to_string())).await.is_ok() {
                                 handshake_complete = true;
                                 info!(client_device_id = %client_device_id, "Sent Welcome, handshake complete");
                             }
@@ -905,7 +908,7 @@ async fn start_primary_hub(
         let send_task = tokio::spawn(async move {
             while let Ok(msg) = rx.recv().await {
                 let mut s = sender_for_broadcast.lock().await;
-                if s.send(Message::Text(msg.into())).await.is_err() {
+                if s.send(Message::Text(msg)).await.is_err() {
                     break;
                 }
             }
@@ -914,7 +917,7 @@ async fn start_primary_hub(
         // Handle incoming messages
         let broadcast_tx = state.broadcast_tx.clone();
         let db = state.db.clone();
-        let hub_device_id = state.hub_device_id.clone();
+        let _hub_device_id = state.hub_device_id.clone();
         
         let recv_task = tokio::spawn(async move {
             let client_device_id = client_device_id_for_recv;
@@ -1061,7 +1064,7 @@ async fn start_primary_hub(
                                         });
                                         
                                         let mut s = sender_for_recv.lock().await;
-                                        let _ = s.send(Message::Text(ack.to_string().into())).await;
+                                        let _ = s.send(Message::Text(ack.to_string())).await;
                                     }
                                 }
                                 "Ping" => {
@@ -1080,7 +1083,7 @@ async fn start_primary_hub(
                                     });
                                     
                                     let mut s = sender_for_recv.lock().await;
-                                    let _ = s.send(Message::Text(pong.to_string().into())).await;
+                                    let _ = s.send(Message::Text(pong.to_string())).await;
                                 }
                                 _ => {
                                     debug!(msg_type = %msg_type, "Received unknown message type");
