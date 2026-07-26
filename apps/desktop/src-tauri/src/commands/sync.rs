@@ -84,13 +84,13 @@ pub async fn get_sync_config(
             })
         }
         None => {
-            // Return default config when not configured
+            // Return default config when not configured (primary mode by default)
             Ok(SyncConfigDto {
                 device_id: "unconfigured".to_string(),
                 device_name: "Unconfigured Device".to_string(),
                 store_id: "".to_string(),
                 store_name: "".to_string(),
-                sync_mode: "offline".to_string(),
+                sync_mode: "primary".to_string(),
                 is_running: false,
             })
         }

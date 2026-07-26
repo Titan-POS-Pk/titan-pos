@@ -209,3 +209,79 @@ export type ErrorCode =
   | 'CART_ERROR'
   | 'INSUFFICIENT_STOCK'
   | 'PAYMENT_ERROR';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Device & Sync Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Device information for this POS terminal.
+ *
+ * Used to identify this device in the header and for sync purposes.
+ */
+export interface DeviceInfo {
+  /** Device UUID (from TITAN_DEVICE_ID or generated) */
+  deviceId: string;
+  /** Human-readable device name */
+  deviceName: string;
+  /** Current sync mode (auto, primary, secondary, offline) */
+  syncMode: string;
+  /** Store ID this device belongs to */
+  storeId: string;
+  /** Whether sync is configured and running */
+  syncEnabled: boolean;
+}
+
+/**
+ * Sync status from the backend.
+ */
+export interface SyncStatus {
+  /** Current connection state */
+  connectionState: string;
+  /** Current sync mode */
+  syncMode: string;
+  /** Last successful sync timestamp */
+  lastSyncAt: string | null;
+  /** Number of pending outbox entries */
+  pendingOutboxCount: number;
+  /** Whether sync is healthy */
+  isHealthy: boolean;
+  /** Last error message if any */
+  errorMessage: string | null;
+  /** Hub URL if connected */
+  hubUrl: string | null;
+}
+
+/**
+ * Sync progress event payload.
+ */
+export interface SyncProgressEvent {
+  /** Number of pending entries */
+  pending: number;
+  /** Number of synced entries */
+  synced: number;
+}
+
+/**
+ * Sync error event payload.
+ */
+export interface SyncErrorEvent {
+  /** Error message */
+  message: string;
+  /** Whether the error is retryable */
+  retryable: boolean;
+}
+
+/**
+ * Inventory update event payload.
+ *
+ * Emitted when stock levels change (e.g., after a sale).
+ */
+export interface InventoryUpdateEvent {
+  /** Product IDs that were updated */
+  productIds: string[];
+  /** Reason for the update */
+  reason: string;
+  /** Timestamp of the update */
+  timestamp: string;
+}

@@ -7,7 +7,7 @@
  * ## Layout Structure
  * ```
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  Header (store name, clock, settings)                        64px      │
+ * │  Header (store name, device ID, clock, settings)             64px      │
  * ├─────────────────────────────────────────────┬───────────────────────────┤
  * │                                             │                           │
  * │  Product Search & Grid                      │  Cart Sidebar             │
@@ -19,6 +19,9 @@
  * │                                             │                           │
  * │                                             │       320px width         │
  * └─────────────────────────────────────────────┴───────────────────────────┘
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  DevConsole (toggleable, shows sync events and logs)       ~200px      │
+ * └─────────────────────────────────────────────────────────────────────────┘
  * ```
  *
  * ## State Management (Hybrid Approach)
@@ -31,6 +34,13 @@
  * Reactive signals handle transient UI state:
  * - Search query, loading states, cart data for display
  *
+ * ## Event Listeners
+ * The app listens for Tauri events:
+ * - `sync:status` - Sync connection/status changes
+ * - `sync:progress` - Sync progress updates
+ * - `sync:error` - Sync errors
+ * - `inventory:update` - Stock level changes (triggers product refresh)
+ *
  * ## Keyboard Shortcuts
  * | Key        | Action                    | State Required |
  * |------------|---------------------------|----------------|
@@ -38,11 +48,13 @@
  * | Escape     | Cancel / Clear Cart       | any            |
  * | Enter      | Confirm focused action    | any            |
  * | 1-9        | Quick add product         | idle/inCart    |
+ * | Ctrl+`     | Toggle Dev Console        | any            |
  */
 
 import { Component, createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { useMachine } from '@xstate/solid';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 // State Machine
 import { posMachine } from './machines/posMachine';
@@ -54,9 +66,27 @@ import Cart from './components/Cart';
 import TenderModal from './components/TenderModal';
 import ReceiptModal from './components/ReceiptModal';
 import { ToastProvider, useToast } from './components/Toast';
+import DevConsole, { type LogEntry } from './components/DevConsole';
 
 // Types
-import type { CartResponse, ConfigState, CreateSaleResponse, ReceiptResponse } from './types';
+import type { 
+  CartResponse, 
+  ConfigState, 
+  CreateSaleResponse, 
+  ReceiptResponse,
+  DeviceInfo,
+  SyncStatus,
+  SyncProgressEvent,
+  SyncErrorEvent,
+  InventoryUpdateEvent,
+} from './types';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Log ID Generator
+// ─────────────────────────────────────────────────────────────────────────────
+
+let logIdCounter = 0;
+const nextLogId = () => ++logIdCounter;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inner App Component (uses toast context)
@@ -84,6 +114,26 @@ const AppInner: Component = () => {
    * Application configuration loaded from Rust backend.
    */
   const [config, setConfig] = createSignal<ConfigState | null>(null);
+
+  /**
+   * Device information (device ID, sync mode, etc.)
+   */
+  const [deviceInfo, setDeviceInfo] = createSignal<DeviceInfo | null>(null);
+
+  /**
+   * Current sync status.
+   */
+  const [syncStatus, setSyncStatus] = createSignal<SyncStatus | null>(null);
+
+  /**
+   * Dev console logs.
+   */
+  const [devLogs, setDevLogs] = createSignal<LogEntry[]>([]);
+
+  /**
+   * Dev console visibility.
+   */
+  const [devConsoleVisible, setDevConsoleVisible] = createSignal(false);
 
   /**
    * Current cart state, synced with Rust backend.
@@ -120,14 +170,119 @@ const AppInner: Component = () => {
   const toast = useToast();
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Dev Console Logging
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Adds a log entry to the dev console.
+   */
+  const addLog = (level: LogEntry['level'], message: string, data?: unknown) => {
+    const entry: LogEntry = {
+      id: nextLogId(),
+      timestamp: new Date(),
+      level,
+      message,
+      data,
+    };
+    setDevLogs(prev => [...prev.slice(-499), entry]); // Keep last 500 logs
+  };
+
+  /**
+   * Clears all dev console logs.
+   */
+  const clearLogs = () => {
+    setDevLogs([]);
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Event Listeners
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Set up Tauri event listeners for sync and inventory updates.
+   */
+  const setupEventListeners = async (): Promise<UnlistenFn[]> => {
+    const unlisteners: UnlistenFn[] = [];
+
+    // Listen for sync status changes
+    unlisteners.push(
+      await listen<SyncStatus>('sync:status', (event) => {
+        setSyncStatus(event.payload);
+        addLog('SYNC', `Status: ${event.payload.connectionState}`, {
+          mode: event.payload.syncMode,
+          hub: event.payload.hubUrl,
+        });
+      })
+    );
+
+    // Listen for sync progress
+    unlisteners.push(
+      await listen<SyncProgressEvent>('sync:progress', (event) => {
+        addLog('SYNC', `Progress: ${event.payload.synced} synced, ${event.payload.pending} pending`);
+      })
+    );
+
+    // Listen for sync errors
+    unlisteners.push(
+      await listen<SyncErrorEvent>('sync:error', (event) => {
+        addLog('ERROR', event.payload.message, { retryable: event.payload.retryable });
+        if (!event.payload.retryable) {
+          toast.error(`Sync Error: ${event.payload.message}`);
+        }
+      })
+    );
+
+    // Listen for inventory updates (stock changes)
+    unlisteners.push(
+      await listen<InventoryUpdateEvent>('inventory:update', (event) => {
+        addLog('INVENTORY', event.payload.reason, {
+          products: event.payload.productIds.length,
+        });
+        // Trigger product list refresh
+        setProductRefreshTrigger(prev => prev + 1);
+        toast.info(`Stock updated: ${event.payload.productIds.length} product(s)`);
+      })
+    );
+
+    return unlisteners;
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Initialization
   // ─────────────────────────────────────────────────────────────────────────
 
+  let eventUnlisteners: UnlistenFn[] = [];
+
   onMount(async () => {
     try {
+      // Set up event listeners first
+      eventUnlisteners = await setupEventListeners();
+      addLog('INFO', 'Event listeners initialized');
+
       // Load configuration
       const configData = await invoke<ConfigState>('get_config');
       setConfig(configData);
+      addLog('INFO', `Store: ${configData.storeName}`);
+
+      // Load device info
+      try {
+        const deviceData = await invoke<DeviceInfo>('get_device_info');
+        setDeviceInfo(deviceData);
+        addLog('INFO', `Device: ${deviceData.deviceId} (${deviceData.syncMode})`);
+      } catch (deviceErr) {
+        console.warn('Could not load device info:', deviceErr);
+        addLog('DEBUG', 'Device info not available');
+      }
+
+      // Load initial sync status
+      try {
+        const statusData = await invoke<SyncStatus>('get_sync_status');
+        setSyncStatus(statusData);
+        addLog('SYNC', `Initial status: ${statusData.connectionState}`);
+      } catch (syncErr) {
+        console.warn('Could not load sync status:', syncErr);
+        addLog('DEBUG', 'Sync status not available');
+      }
 
       // Load cart state (in case of app restart mid-transaction)
       const cartData = await invoke<CartResponse>('get_cart');
@@ -142,11 +297,18 @@ const AppInner: Component = () => {
       }
 
       setLoading(false);
+      addLog('INFO', 'Application ready');
     } catch (err) {
       console.error('Failed to initialize app:', err);
       setError(`Failed to initialize: ${err}`);
+      addLog('ERROR', `Initialization failed: ${err}`);
       setLoading(false);
     }
+  });
+
+  // Cleanup event listeners
+  onCleanup(() => {
+    eventUnlisteners.forEach(unlisten => unlisten());
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -420,10 +582,14 @@ const AppInner: Component = () => {
       {/* Main Application */}
       <Show when={!loading() && !error()}>
         {/* Header */}
-        <Header storeName={config()?.storeName ?? 'Titan POS'} />
+        <Header 
+          storeName={config()?.storeName ?? 'Titan POS'} 
+          deviceInfo={deviceInfo()}
+          syncStatus={syncStatus()}
+        />
 
-        {/* Main Content */}
-        <div class="flex flex-1 overflow-hidden">
+        {/* Main Content - adjust padding-bottom when console is visible */}
+        <div class={`flex flex-1 overflow-hidden ${devConsoleVisible() ? 'pb-64' : ''}`}>
           {/* Product Search Area */}
           <main class="flex-1 overflow-auto p-4">
             <ProductSearch 
@@ -445,11 +611,14 @@ const AppInner: Component = () => {
           </aside>
         </div>
 
-        {/* State-based indicator for development */}
+        {/* Dev Console (in dev mode) */}
         <Show when={(import.meta as unknown as { env: { DEV: boolean } }).env.DEV}>
-          <div class="fixed bottom-4 left-4 bg-gray-800 text-white px-3 py-1 rounded-full text-xs font-mono">
-            State: {JSON.stringify(state.value)}
-          </div>
+          <DevConsole
+            logs={devLogs()}
+            onClear={clearLogs}
+            isVisible={devConsoleVisible()}
+            onToggle={() => setDevConsoleVisible(v => !v)}
+          />
         </Show>
 
         {/* Tender Modal - shown when in 'tender' state */}
@@ -485,6 +654,7 @@ const AppInner: Component = () => {
             <div><kbd class="bg-gray-700 px-1 rounded">Esc</kbd> Cancel / Clear</div>
             <div><kbd class="bg-gray-700 px-1 rounded">Enter</kbd> Confirm</div>
             <div><kbd class="bg-gray-700 px-1 rounded">1-9</kbd> Quick add</div>
+            <div><kbd class="bg-gray-700 px-1 rounded">Ctrl+`</kbd> Dev Console</div>
           </div>
         </div>
       </div>

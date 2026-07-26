@@ -49,4 +49,4 @@ mod sync;
 pub use cart::{Cart, CartItem, CartState, CartTotals};
 pub use config::ConfigState;
 pub use db::DbState;
-pub use sync::{SyncState, SyncStatusDto, TauriSyncEventEmitter};
+pub use sync::{SimpleSyncEmitter, SyncState, SyncStatusDto, TauriSyncEventEmitter};

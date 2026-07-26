@@ -52,12 +52,14 @@
 //! └──────────────────────────────────────────────────────────────────────────┘
 //! ```
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Emitter};
 use titan_sync::{
     ConnectionState, SyncAgentHandle, SyncConfig, SyncEventEmitter, SyncMode, SyncStatus,
 };
+use tokio::sync::broadcast;
 use tracing::{debug, error, info};
 
 /// Sync state managed by Tauri.
@@ -65,6 +67,7 @@ use tracing::{debug, error, info};
 /// This wraps the sync agent and provides thread-safe access to sync status.
 /// The sync agent runs as a background task, and this state allows commands
 /// to query status and control the sync process.
+#[derive(Clone)]
 pub struct SyncState {
     /// Current sync status (thread-safe for reads)
     status: Arc<RwLock<SyncStatusDto>>,
@@ -74,6 +77,13 @@ pub struct SyncState {
 
     /// Current sync configuration
     config: Arc<RwLock<Option<SyncConfig>>>,
+
+    /// App handle for emitting events to frontend
+    app_handle: Arc<RwLock<Option<AppHandle>>>,
+    
+    /// Broadcast channel for hub to broadcast messages to connected secondaries.
+    /// PRIMARY mode sets this when starting the hub server.
+    hub_broadcast_tx: Arc<RwLock<Option<broadcast::Sender<String>>>>,
 }
 
 impl SyncState {
@@ -83,6 +93,15 @@ impl SyncState {
             status: Arc::new(RwLock::new(SyncStatusDto::default())),
             agent_handle: Arc::new(RwLock::new(None)),
             config: Arc::new(RwLock::new(None)),
+            app_handle: Arc::new(RwLock::new(None)),
+            hub_broadcast_tx: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Sets the app handle for emitting events.
+    pub fn set_app_handle(&self, handle: AppHandle) {
+        if let Ok(mut h) = self.app_handle.write() {
+            *h = Some(handle);
         }
     }
 
@@ -94,10 +113,26 @@ impl SyncState {
             .unwrap_or_default()
     }
 
-    /// Updates the sync status.
+    /// Updates the sync status and emits event to frontend.
     pub fn update_status(&self, status: SyncStatusDto) {
+        debug!(
+            connection_state = %status.connection_state,
+            sync_mode = %status.sync_mode,
+            "Updating sync status"
+        );
+        
+        // Update internal state
         if let Ok(mut s) = self.status.write() {
-            *s = status;
+            *s = status.clone();
+        }
+        
+        // Emit event to frontend
+        if let Ok(handle) = self.app_handle.read() {
+            if let Some(ref app) = *handle {
+                if let Err(e) = app.emit("sync:status", &status) {
+                    error!(?e, "Failed to emit sync:status event");
+                }
+            }
         }
     }
 
@@ -128,6 +163,141 @@ impl SyncState {
     pub fn set_config(&self, config: SyncConfig) {
         if let Ok(mut c) = self.config.write() {
             *c = Some(config);
+        }
+    }
+    
+    /// Sets the hub broadcast channel (PRIMARY mode only).
+    /// 
+    /// When running as PRIMARY, the hub server creates a broadcast channel
+    /// for sending messages to connected secondaries. This method stores
+    /// a reference to that channel so other parts of the app (like sale
+    /// finalization) can broadcast inventory updates.
+    pub fn set_hub_broadcast_tx(&self, tx: broadcast::Sender<String>) {
+        if let Ok(mut t) = self.hub_broadcast_tx.write() {
+            *t = Some(tx);
+        }
+    }
+    
+    /// Broadcasts an inventory update to connected secondaries (PRIMARY mode).
+    ///
+    /// This is called when PRIMARY makes a local sale and needs to notify
+    /// connected SECONDARY devices about the stock change.
+    ///
+    /// # Arguments
+    /// * `product_id` - The product whose stock changed
+    /// * `sku` - The SKU for reference
+    /// * `delta_qty` - The change in stock (negative for sales)
+    ///
+    /// # Returns
+    /// `true` if broadcast was sent (PRIMARY mode), `false` otherwise.
+    pub fn broadcast_inventory_update(&self, product_id: &str, sku: &str, delta_qty: i32) -> bool {
+        if let Ok(tx_guard) = self.hub_broadcast_tx.read() {
+            if let Some(ref tx) = *tx_guard {
+                // Use the exact field names expected by SyncMessage::InventoryUpdate
+                // which uses #[serde(rename_all = "camelCase")]
+                let update = serde_json::json!({
+                    "type": "InventoryUpdate",
+                    "payload": {
+                        "productId": product_id,
+                        "sku": sku,
+                        "deltaQuantity": delta_qty,
+                        "sourceDeviceId": "primary",
+                        "timestamp": chrono::Utc::now().to_rfc3339()
+                    }
+                });
+                
+                match tx.send(update.to_string()) {
+                    Ok(receivers) => {
+                        debug!(
+                            product_id = %product_id,
+                            delta_qty = delta_qty,
+                            receivers = receivers,
+                            "Broadcast InventoryUpdate to secondaries"
+                        );
+                        return true;
+                    }
+                    Err(_) => {
+                        // No receivers - this is OK if no secondaries are connected
+                        debug!("No secondaries connected to receive InventoryUpdate");
+                        return false;
+                    }
+                }
+            }
+        }
+        false
+    }
+    
+    /// Sends an inventory delta to the hub (SECONDARY mode).
+    ///
+    /// This is called when SECONDARY makes a sale and needs to notify PRIMARY
+    /// about the stock change so it can broadcast to other secondaries.
+    ///
+    /// # Arguments
+    /// * `product_id` - The product whose stock changed
+    /// * `sku` - The SKU for reference
+    /// * `delta_qty` - The change in stock (negative for sales)
+    ///
+    /// # Returns
+    /// `true` if delta was sent (SECONDARY mode with agent), `false` otherwise.
+    pub async fn send_inventory_delta(&self, product_id: &str, sku: &str, delta_qty: i32) -> bool {
+        // Clone the handle to avoid holding the lock across await
+        let handle = {
+            let guard = match self.agent_handle.read() {
+                Ok(g) => g,
+                Err(_) => return false,
+            };
+            guard.clone()
+        };
+        
+        if let Some(ref h) = handle {
+            match h.send_inventory_delta(product_id, sku, delta_qty).await {
+                Ok(sent) => {
+                    if sent {
+                        debug!(
+                            product_id = %product_id,
+                            sku = %sku,
+                            delta_qty = delta_qty,
+                            "Sent InventoryDelta to hub"
+                        );
+                    }
+                    return sent;
+                }
+                Err(e) => {
+                    error!(?e, "Failed to send InventoryDelta");
+                    return false;
+                }
+            }
+        }
+        false
+    }
+    
+    /// Emits an inventory update event to the frontend.
+    ///
+    /// This should be called when SECONDARY receives an InventoryUpdate from PRIMARY
+    /// so the frontend can refresh product displays.
+    pub fn emit_inventory_update(&self, product_ids: Vec<String>, reason: &str) {
+        if let Ok(handle) = self.app_handle.read() {
+            if let Some(ref app) = *handle {
+                #[derive(Clone, serde::Serialize)]
+                #[serde(rename_all = "camelCase")]
+                struct InventoryUpdateEvent {
+                    product_ids: Vec<String>,
+                    reason: String,
+                    timestamp: String,
+                }
+                
+                let event = InventoryUpdateEvent {
+                    product_ids: product_ids.clone(),
+                    reason: reason.to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                };
+                
+                if let Err(e) = app.emit("inventory:update", &event) {
+                    error!(?e, "Failed to emit inventory:update event");
+                } else {
+                    debug!(count = product_ids.len(), reason = reason, "Emitted inventory:update event from sync");
+                }
+            }
         }
     }
 
@@ -184,7 +354,7 @@ impl Default for SyncStatusDto {
     fn default() -> Self {
         Self {
             connection_state: "disconnected".to_string(),
-            sync_mode: "offline".to_string(),
+            sync_mode: "primary".to_string(),
             last_sync_at: None,
             pending_outbox_count: 0,
             is_healthy: false,
@@ -291,5 +461,75 @@ impl SyncEventEmitter for TauriSyncEventEmitter {
         }
 
         error!(message, retryable, "Emitted sync:error");
+    }
+    
+    fn emit_inventory_update(&self, product_ids: Vec<String>, reason: &str) {
+        #[derive(Serialize, Clone)]
+        #[serde(rename_all = "camelCase")]
+        struct InventoryUpdateEvent {
+            product_ids: Vec<String>,
+            reason: String,
+            timestamp: String,
+        }
+        
+        let event = InventoryUpdateEvent {
+            product_ids: product_ids.clone(),
+            reason: reason.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        };
+        
+        if let Err(e) = self.app_handle.emit("inventory:update", &event) {
+            error!(?e, "Failed to emit inventory:update event");
+        }
+        
+        debug!(count = product_ids.len(), reason = reason, "Emitted inventory:update from sync agent");
+    }
+}
+
+/// Simple sync event emitter that calls a callback on connection state changes.
+/// 
+/// Used for AUTO mode where we need to update the main SyncState when
+/// connection status changes.
+pub struct SimpleSyncEmitter<F>
+where
+    F: Fn(bool) + Send + Sync,
+{
+    on_connected_change: F,
+}
+
+impl<F> SimpleSyncEmitter<F>
+where
+    F: Fn(bool) + Send + Sync,
+{
+    /// Creates a new SimpleSyncEmitter with the given callback.
+    /// 
+    /// The callback receives `true` when connected, `false` otherwise.
+    pub fn new(on_connected_change: F) -> Self {
+        Self { on_connected_change }
+    }
+}
+
+impl<F> SyncEventEmitter for SimpleSyncEmitter<F>
+where
+    F: Fn(bool) + Send + Sync,
+{
+    fn emit_status(&self, status: &SyncStatus) {
+        let connected = matches!(status.connection_state, ConnectionState::Connected);
+        info!(connected, "SimpleSyncEmitter: connection state changed");
+        (self.on_connected_change)(connected);
+    }
+
+    fn emit_progress(&self, _pending: i64, _synced: i64) {
+        // No-op for simple emitter
+    }
+
+    fn emit_error(&self, message: &str, _retryable: bool) {
+        error!(message, "SimpleSyncEmitter: error");
+        (self.on_connected_change)(false);
+    }
+    
+    fn emit_inventory_update(&self, product_ids: Vec<String>, reason: &str) {
+        // No-op for simple emitter - it doesn't have an AppHandle to emit to
+        debug!(count = product_ids.len(), reason = reason, "SimpleSyncEmitter: inventory update (no-op)");
     }
 }

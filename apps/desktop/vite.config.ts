@@ -11,15 +11,16 @@ export default defineConfig({
   clearScreen: false,
 
   server: {
-    // Tauri expects a fixed port, fail if that port is not available
-    port: 5173,
+    // Allow port to be configured via VITE_PORT environment variable
+    // Default to 5173, but respect the environment variable for multi-instance testing
+    port: parseInt(process.env.VITE_PORT || '5173', 10),
     strictPort: true,
     // Mobile development
     host: '0.0.0.0',
     hmr: {
       protocol: 'ws',
       host: 'localhost',
-      port: 5173,
+      port: parseInt(process.env.VITE_PORT || '5173', 10),
     },
     watch: {
       // Tell vite to ignore watching `src-tauri`

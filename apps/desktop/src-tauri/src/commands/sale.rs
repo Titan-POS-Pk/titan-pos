@@ -2,14 +2,28 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tauri::State;
-use tracing::{debug, info};
+use tauri::{AppHandle, Emitter, State};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::error::{ApiError, ErrorCode};
-use crate::state::{CartState, ConfigState, DbState};
+use crate::state::{CartState, ConfigState, DbState, SyncState};
 use titan_core::{Payment, PaymentMethod, Sale, SaleItem, SaleStatus};
 use titan_db::Database;
+
+/// Event payload for inventory updates.
+/// 
+/// Emitted when stock levels change so the frontend can refresh product displays.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryUpdateEvent {
+    /// Product IDs that were updated
+    pub product_ids: Vec<String>,
+    /// Reason for the update
+    pub reason: String,
+    /// Timestamp of the update
+    pub timestamp: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -221,9 +235,11 @@ pub async fn add_payment(
 
 #[tauri::command]
 pub async fn finalize_sale(
+    app_handle: AppHandle,
     db: State<'_, DbState>,
     cart: State<'_, CartState>,
     config: State<'_, ConfigState>,
+    sync: State<'_, SyncState>,
     sale_id: String,
 ) -> Result<ReceiptResponse, ApiError> {
     debug!(sale_id = %sale_id, "finalize_sale command");
@@ -233,6 +249,10 @@ pub async fn finalize_sale(
     // Get sale items BEFORE finalizing so we can decrement stock
     let items = db_inner.sales().get_items(&sale_id).await?;
 
+    // Track which products had stock changes along with their deltas and SKUs
+    // (product_id, sku, delta)
+    let mut stock_changes: Vec<(String, String, i32)> = Vec::new();
+
     // Decrement stock for each item sold
     // ┌─────────────────────────────────────────────────────────────────────────┐
     // │  Stock Deduction on Sale Finalization                                   │
@@ -241,6 +261,7 @@ pub async fn finalize_sale(
     // │    1. Get product details to check track_inventory flag                │
     // │    2. If tracking inventory, decrement by quantity sold                 │
     // │    3. Use delta update (CRDT-friendly for sync)                         │
+    // │    4. Broadcast to connected secondaries (PRIMARY mode)                 │
     // │                                                                         │
     // │  Example: Sell 3 bottles of Coke                                        │
     // │    product.current_stock: 50 → 47                                       │
@@ -253,8 +274,42 @@ pub async fn finalize_sale(
                 // Decrement stock by quantity sold (negative delta)
                 let delta = -(item.quantity as i32);
                 db_inner.products().update_stock(&item.product_id, delta).await?;
+                stock_changes.push((item.product_id.clone(), product.sku.clone(), delta));
                 debug!(product_id = %item.product_id, sku = %item.sku_snapshot, quantity = item.quantity, "Stock decremented");
             }
+        }
+    }
+
+    // Broadcast inventory updates to connected secondaries (PRIMARY mode only)
+    // OR send inventory deltas to hub (SECONDARY mode)
+    // This ensures all devices see stock changes regardless of which device made the sale
+    for (product_id, sku, delta) in &stock_changes {
+        // Try PRIMARY broadcast first
+        if sync.broadcast_inventory_update(product_id, sku, *delta) {
+            debug!(product_id = %product_id, sku = %sku, delta = delta, "Broadcast inventory update to secondaries (PRIMARY mode)");
+        } else {
+            // If not PRIMARY, try SECONDARY send to hub
+            if sync.send_inventory_delta(product_id, sku, *delta).await {
+                debug!(product_id = %product_id, sku = %sku, delta = delta, "Sent inventory delta to hub (SECONDARY mode)");
+            }
+        }
+    }
+    
+    // Extract just product IDs for the local frontend event
+    let updated_product_ids: Vec<String> = stock_changes.iter().map(|(id, _, _)| id.clone()).collect();
+
+    // Emit inventory update event so frontend can refresh product displays
+    if !updated_product_ids.is_empty() {
+        let event = InventoryUpdateEvent {
+            product_ids: updated_product_ids.clone(),
+            reason: format!("Sale {} completed", sale_id),
+            timestamp: Utc::now().to_rfc3339(),
+        };
+
+        if let Err(e) = app_handle.emit("inventory:update", &event) {
+            error!(?e, "Failed to emit inventory:update event");
+        } else {
+            debug!(count = updated_product_ids.len(), "Emitted inventory:update event");
         }
     }
 

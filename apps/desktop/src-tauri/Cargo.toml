@@ -87,6 +87,15 @@ thiserror = "1"
 # Directories for finding app data folder
 directories = "5"
 
+# Axum for WebSocket hub server (PRIMARY mode)
+axum = { version = "0.7", features = ["ws"] }
+
+# Futures utilities for WebSocket handling
+futures-util = "0.3"
+
+# Load .env files for development configuration
+dotenvy = "0.15"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
