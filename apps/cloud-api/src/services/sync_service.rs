@@ -271,6 +271,7 @@ impl SyncService for SyncServiceImpl {
 
         info!(
             store_id = %auth.store_id,
+            device_id = %auth.device_id,
             batch_id = %req.batch_id,
             entity_count = req.entities.len(),
             "Processing upload batch"
@@ -311,6 +312,7 @@ impl SyncService for SyncServiceImpl {
 
         info!(
             store_id = %auth.store_id,
+            device_id = %auth.device_id,
             batch_id = %req.batch_id,
             synced = synced_ids.len(),
             failed = errors.len(),

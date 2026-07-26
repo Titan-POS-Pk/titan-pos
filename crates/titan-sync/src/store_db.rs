@@ -56,6 +56,38 @@ const STORE_SCHEMA: &str =
     include_str!("../../../migrations/sqlite/004_store_aggregates_schema.sql");
 
 // =============================================================================
+// Sales Summary Write Model
+// =============================================================================
+
+/// One period's sales totals, to be folded into `sales_summaries`.
+///
+/// This is a struct rather than eight positional parameters because
+/// `gross_cents`, `tax_cents` and `net_cents` are three adjacent `i64`s.
+/// Transposing any two of them compiles cleanly and produces a row that is
+/// wrong in a way nothing downstream can detect — the totals still add up,
+/// they are just attributed to the wrong column. Named fields make the
+/// transposition impossible to write by accident.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SalesSummaryDelta<'a> {
+    /// Bucket granularity, e.g. `"hour"` or `"day"`.
+    pub period_type: &'a str,
+    /// Inclusive RFC 3339 start of the bucket.
+    pub period_start: &'a str,
+    /// Exclusive RFC 3339 end of the bucket.
+    pub period_end: &'a str,
+    /// Number of completed sales in the bucket.
+    pub sale_count: i32,
+    /// Number of line items across those sales.
+    pub item_count: i32,
+    /// Gross total before tax.
+    pub gross_cents: i64,
+    /// Tax collected.
+    pub tax_cents: i64,
+    /// Total tendered, tax included.
+    pub net_cents: i64,
+}
+
+// =============================================================================
 // Store Database
 // =============================================================================
 
@@ -238,17 +270,18 @@ impl StoreDatabase {
     // =========================================================================
 
     /// Records or updates a sales summary for a period.
-    pub async fn upsert_sales_summary(
-        &self,
-        period_type: &str,
-        period_start: &str,
-        period_end: &str,
-        sale_count: i32,
-        item_count: i32,
-        gross_cents: i64,
-        tax_cents: i64,
-        net_cents: i64,
-    ) -> SyncResult<()> {
+    pub async fn upsert_sales_summary(&self, delta: SalesSummaryDelta<'_>) -> SyncResult<()> {
+        let SalesSummaryDelta {
+            period_type,
+            period_start,
+            period_end,
+            sale_count,
+            item_count,
+            gross_cents,
+            tax_cents,
+            net_cents,
+        } = delta;
+
         let avg_cents = if sale_count > 0 {
             gross_cents / sale_count as i64
         } else {
@@ -823,16 +856,16 @@ mod tests {
     async fn test_sales_summary() {
         let (db, _temp) = create_test_db().await;
 
-        db.upsert_sales_summary(
-            "hour",
-            "2026-02-01T10:00:00Z",
-            "2026-02-01T11:00:00Z",
-            5,
-            15,
-            10000,
-            500,
-            10500,
-        )
+        db.upsert_sales_summary(SalesSummaryDelta {
+            period_type: "hour",
+            period_start: "2026-02-01T10:00:00Z",
+            period_end: "2026-02-01T11:00:00Z",
+            sale_count: 5,
+            item_count: 15,
+            gross_cents: 10000,
+            tax_cents: 500,
+            net_cents: 10500,
+        })
         .await
         .unwrap();
 

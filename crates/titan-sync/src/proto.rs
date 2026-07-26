@@ -10,5 +10,10 @@
 //! - `NotificationServiceClient` - Real-time push notifications
 //! - `HealthServiceClient` - Health checks
 
+// `Notification::Payload` is a prost `oneof` whose variants differ in size by
+// more than clippy's threshold. The shape is dictated by titan_sync.proto and
+// the code is regenerated on every build, so it cannot be edited here.
+#![allow(clippy::large_enum_variant)]
+
 // Include the generated code from build.rs
 tonic::include_proto!("titan.sync.v1");

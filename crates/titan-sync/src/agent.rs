@@ -122,6 +122,41 @@ impl SyncEventEmitter for NoOpEmitter {
 }
 
 // =============================================================================
+// Message Router
+// =============================================================================
+
+/// Everything the message-router task owns for the life of a connection.
+///
+/// One router is built per `SyncAgent::start` and consumed by
+/// `SyncAgent::message_router`; the pieces are never passed independently, so
+/// they travel as one value rather than as eight positional arguments.
+struct MessageRouter {
+    /// Sync configuration.
+    config: Arc<SyncConfig>,
+
+    /// Current sync status, shared with the agent.
+    status: Arc<RwLock<SyncStatus>>,
+
+    /// Event emitter for frontend notifications.
+    emitter: Arc<dyn SyncEventEmitter>,
+
+    /// Messages decoded by the transport.
+    incoming_rx: mpsc::Receiver<SyncMessage>,
+
+    /// Transport handle, for the Hello handshake and liveness checks.
+    transport: TransportHandle,
+
+    /// Outbox processor, for routing batch acks.
+    outbox_handle: OutboxProcessorHandle,
+
+    /// Inbound handler, for routing entity and inventory updates.
+    inbound_handle: InboundHandlerHandle,
+
+    /// Closed or signalled when the agent stops.
+    shutdown_rx: mpsc::Receiver<()>,
+}
+
+// =============================================================================
 // Sync Agent
 // =============================================================================
 
@@ -301,16 +336,16 @@ impl SyncAgent {
         let emitter = self.emitter.clone();
         let transport_for_router = transport_handle.clone();
 
-        tokio::spawn(Self::message_router(
+        tokio::spawn(Self::message_router(MessageRouter {
             config,
             status,
             emitter,
             incoming_rx,
-            transport_for_router,
+            transport: transport_for_router,
             outbox_handle,
             inbound_handle,
             shutdown_rx,
-        ));
+        }));
 
         // Update status
         {
@@ -364,16 +399,18 @@ impl SyncAgent {
     }
 
     /// Main message router loop.
-    async fn message_router(
-        config: Arc<SyncConfig>,
-        status: Arc<RwLock<SyncStatus>>,
-        emitter: Arc<dyn SyncEventEmitter>,
-        mut incoming_rx: mpsc::Receiver<SyncMessage>,
-        transport: TransportHandle,
-        outbox_handle: OutboxProcessorHandle,
-        inbound_handle: InboundHandlerHandle,
-        mut shutdown_rx: mpsc::Receiver<()>,
-    ) {
+    async fn message_router(router: MessageRouter) {
+        let MessageRouter {
+            config,
+            status,
+            emitter,
+            mut incoming_rx,
+            transport,
+            outbox_handle,
+            inbound_handle,
+            mut shutdown_rx,
+        } = router;
+
         let mut handshake_done = false;
 
         loop {

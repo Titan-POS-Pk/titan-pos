@@ -53,7 +53,7 @@ use tracing::{debug, error, info, warn};
 use crate::config::AggregationSettings;
 use crate::error::{SyncError, SyncResult};
 use crate::protocol::{AggregationSummary, SalesSummary};
-use crate::store_db::StoreDatabase;
+use crate::store_db::{SalesSummaryDelta, StoreDatabase};
 
 // =============================================================================
 // Aggregation Event Types
@@ -73,13 +73,7 @@ pub enum AggregationEvent {
 
     /// Sale completed on a device.
     SaleCompleted {
-        device_id: String,
-        sale_id: String,
-        gross_cents: i64,
-        tax_cents: i64,
-        net_cents: i64,
-        item_count: i32,
-        payments: Vec<(String, i64)>, // (method, amount_cents)
+        sale: CompletedSale,
         timestamp: DateTime<Utc>,
     },
 
@@ -88,6 +82,34 @@ pub enum AggregationEvent {
 
     /// Shutdown the aggregator.
     Shutdown,
+}
+
+// =============================================================================
+// Completed Sale
+// =============================================================================
+
+/// A finished sale, as reported by a device to the store aggregator.
+///
+/// The three money fields travel together through `record_sale`,
+/// `handle_sale_completed` and `PendingSales::add_sale`. Passed positionally
+/// they were three adjacent `i64`s in every one of those signatures, so any
+/// transposition compiled and produced totals attributed to the wrong column.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletedSale {
+    /// Device that rang the sale.
+    pub device_id: String,
+    /// Sale UUID.
+    pub sale_id: String,
+    /// Gross total before tax.
+    pub gross_cents: i64,
+    /// Tax collected.
+    pub tax_cents: i64,
+    /// Total tendered, tax included.
+    pub net_cents: i64,
+    /// Number of line items.
+    pub item_count: i32,
+    /// Tenders, as `(method, amount_cents)`.
+    pub payments: Vec<(String, i64)>,
 }
 
 // =============================================================================
@@ -107,15 +129,7 @@ struct PendingSales {
 }
 
 impl PendingSales {
-    fn add_sale(
-        &mut self,
-        gross_cents: i64,
-        tax_cents: i64,
-        net_cents: i64,
-        item_count: i32,
-        payments: &[(String, i64)],
-        timestamp: DateTime<Utc>,
-    ) {
+    fn add_sale(&mut self, sale: &CompletedSale, timestamp: DateTime<Utc>) {
         if self.period_start.is_none() {
             // Round down to hour boundary
             self.period_start = Some(
@@ -128,12 +142,12 @@ impl PendingSales {
         }
 
         self.sale_count += 1;
-        self.item_count += item_count;
-        self.gross_cents += gross_cents;
-        self.tax_cents += tax_cents;
-        self.net_cents += net_cents;
+        self.item_count += sale.item_count;
+        self.gross_cents += sale.gross_cents;
+        self.tax_cents += sale.tax_cents;
+        self.net_cents += sale.net_cents;
 
-        for (method, amount) in payments {
+        for (method, amount) in &sale.payments {
             let entry = self.payments.entry(method.clone()).or_insert((0, 0));
             entry.0 += 1;
             entry.1 += amount;
@@ -233,25 +247,10 @@ impl StoreAggregatorHandle {
     }
 
     /// Records a completed sale for aggregation.
-    pub async fn record_sale(
-        &self,
-        device_id: &str,
-        sale_id: &str,
-        gross_cents: i64,
-        tax_cents: i64,
-        net_cents: i64,
-        item_count: i32,
-        payments: Vec<(String, i64)>,
-    ) -> SyncResult<()> {
+    pub async fn record_sale(&self, sale: CompletedSale) -> SyncResult<()> {
         self.event_tx
             .send(AggregationEvent::SaleCompleted {
-                device_id: device_id.to_string(),
-                sale_id: sale_id.to_string(),
-                gross_cents,
-                tax_cents,
-                net_cents,
-                item_count,
-                payments,
+                sale,
                 timestamp: Utc::now(),
             })
             .await
@@ -363,8 +362,8 @@ impl StoreAggregator {
                         AggregationEvent::InventoryDelta { device_id, product_id, sku, delta, timestamp } => {
                             self.handle_inventory_delta(&device_id, &product_id, &sku, delta, timestamp).await;
                         }
-                        AggregationEvent::SaleCompleted { device_id, sale_id, gross_cents, tax_cents, net_cents, item_count, payments, timestamp } => {
-                            self.handle_sale_completed(&device_id, &sale_id, gross_cents, tax_cents, net_cents, item_count, &payments, timestamp).await;
+                        AggregationEvent::SaleCompleted { sale, timestamp } => {
+                            self.handle_sale_completed(&sale, timestamp).await;
                         }
                         AggregationEvent::Flush => {
                             self.flush_sales().await;
@@ -431,42 +430,28 @@ impl StoreAggregator {
     }
 
     /// Handles a completed sale.
-    async fn handle_sale_completed(
-        &self,
-        device_id: &str,
-        sale_id: &str,
-        gross_cents: i64,
-        tax_cents: i64,
-        net_cents: i64,
-        item_count: i32,
-        payments: &[(String, i64)],
-        timestamp: DateTime<Utc>,
-    ) {
+    async fn handle_sale_completed(&self, sale: &CompletedSale, timestamp: DateTime<Utc>) {
         debug!(
-            device_id,
-            sale_id, gross_cents, item_count, "Processing completed sale"
+            device_id = %sale.device_id,
+            sale_id = %sale.sale_id,
+            gross_cents = sale.gross_cents,
+            item_count = sale.item_count,
+            "Processing completed sale"
         );
 
         // Add to pending aggregation
         {
             let mut pending = self.pending_sales.write().await;
-            pending.add_sale(
-                gross_cents,
-                tax_cents,
-                net_cents,
-                item_count,
-                payments,
-                timestamp,
-            );
+            pending.add_sale(sale, timestamp);
         }
 
         // Update device activity
         if let Err(e) = self
             .store_db
-            .increment_device_sales(device_id, 1, gross_cents)
+            .increment_device_sales(&sale.device_id, 1, sale.gross_cents)
             .await
         {
-            warn!(?e, device_id, "Failed to increment device sales");
+            warn!(?e, device_id = %sale.device_id, "Failed to increment device sales");
         }
     }
 
@@ -519,16 +504,16 @@ impl StoreAggregator {
         // Upsert sales summary
         if let Err(e) = self
             .store_db
-            .upsert_sales_summary(
-                "hour",
-                &period_start_str,
-                &period_end_str,
-                pending.sale_count,
-                pending.item_count,
-                pending.gross_cents,
-                pending.tax_cents,
-                pending.net_cents,
-            )
+            .upsert_sales_summary(SalesSummaryDelta {
+                period_type: "hour",
+                period_start: &period_start_str,
+                period_end: &period_end_str,
+                sale_count: pending.sale_count,
+                item_count: pending.item_count,
+                gross_cents: pending.gross_cents,
+                tax_cents: pending.tax_cents,
+                net_cents: pending.net_cents,
+            })
             .await
         {
             error!(?e, "Failed to upsert sales summary");
@@ -647,15 +632,15 @@ mod tests {
         let (handle, _temp) = create_test_aggregator().await;
 
         handle
-            .record_sale(
-                "device-001",
-                "sale-001",
-                1000,
-                50,
-                1050,
-                3,
-                vec![("cash".to_string(), 1050)],
-            )
+            .record_sale(CompletedSale {
+                device_id: "device-001".to_string(),
+                sale_id: "sale-001".to_string(),
+                gross_cents: 1000,
+                tax_cents: 50,
+                net_cents: 1050,
+                item_count: 3,
+                payments: vec![("cash".to_string(), 1050)],
+            })
             .await
             .unwrap();
 

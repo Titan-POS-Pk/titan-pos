@@ -15,13 +15,6 @@
 //! └─────────────────────────────────────────────────────────────────────────┘
 //! ```
 
-mod auth;
-mod config;
-mod db;
-mod error;
-mod proto;
-mod services;
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -29,18 +22,17 @@ use tonic::transport::Server;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-use crate::config::CloudConfig;
-use crate::db::Database;
-use crate::proto::{
+use titan_cloud_api::proto::{
     auth_service_server::AuthServiceServer, config_service_server::ConfigServiceServer,
     health_service_server::HealthServiceServer,
     notification_service_server::NotificationServiceServer, sync_service_server::SyncServiceServer,
 };
-use crate::services::{
+use titan_cloud_api::services::{
     auth_service::AuthServiceImpl, config_service::ConfigServiceImpl,
     health_service::HealthServiceImpl, notification_service::NotificationServiceImpl,
     sync_service::SyncServiceImpl,
 };
+use titan_cloud_api::{AppState, CloudConfig, Database};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -117,13 +109,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Server shutdown complete");
     Ok(())
-}
-
-/// Shared application state.
-pub struct AppState {
-    pub db: Database,
-    pub redis: Option<redis::Client>,
-    pub config: CloudConfig,
 }
 
 /// Graceful shutdown signal handler.

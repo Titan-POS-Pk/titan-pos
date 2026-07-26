@@ -153,10 +153,10 @@ struct PendingDelta {
     delta_quantity: i32,
     /// Source device ID.
     source_device: String,
-    /// Timestamp of first delta.
+    /// When this product's first uncoalesced delta arrived. The gap between
+    /// this and the flush is the latency coalescing adds to a lane's view of
+    /// stock, which is the number to look at when tuning `coalesce_window`.
     first_seen: Instant,
-    /// Timestamp of most recent delta.
-    last_seen: Instant,
 }
 
 // =============================================================================
@@ -319,9 +319,11 @@ impl InventoryAggregator {
 
         match pending.get_mut(&delta.product_id) {
             Some(existing) => {
-                // Merge with existing delta (CRDT: additive)
+                // Merge with existing delta (CRDT: additive). `first_seen` is
+                // deliberately left alone: the flush is a fixed-interval tick,
+                // not a quiet-period debounce, so the age that matters is the
+                // age of the oldest unbroadcast change, not the newest.
                 existing.delta_quantity += delta.delta_quantity;
-                existing.last_seen = now;
                 debug!(
                     product_id = %delta.product_id,
                     merged_delta = existing.delta_quantity,
@@ -338,7 +340,6 @@ impl InventoryAggregator {
                         delta_quantity: delta.delta_quantity,
                         source_device,
                         first_seen: now,
-                        last_seen: now,
                     },
                 );
             }
@@ -355,7 +356,15 @@ impl InventoryAggregator {
             pending.drain().map(|(_, v)| v).collect()
         };
 
-        debug!(count = deltas.len(), "Flushing pending deltas");
+        // Age of the oldest delta in this batch: how long the slowest product
+        // in it waited before any lane heard about the stock change.
+        let oldest_ms = deltas
+            .iter()
+            .map(|d| d.first_seen.elapsed().as_millis())
+            .max()
+            .unwrap_or(0);
+
+        debug!(count = deltas.len(), oldest_ms, "Flushing pending deltas");
 
         // Broadcast each coalesced delta
         for pending_delta in deltas {
